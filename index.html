@@ -211,6 +211,17 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
         </select>
         <button class="btn-add" id="btnAdd">+ Adicionar Gift Card</button>
       </div>
+
+      <div style="border-top:1px solid var(--border);margin-top:2rem;padding-top:1.75rem">
+        <h2 class="page-title">Importar em Lote</h2>
+        <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.75rem">Cole os dados no formato: <code style="background:var(--surface-2);padding:2px 6px;border-radius:4px;font-size:0.78rem">Descricao-Tipo[TAB]Codigo</code> &nbsp;(uma linha por card). O tipo é detectado automaticamente pelo nome (mensal/trimestral/anual).</p>
+        <textarea id="batchInput" placeholder="UniTV-Anual&#9;9245375452192143&#10;UniTV-Anual&#9;5080725779513879&#10;UniTV-Mensal&#9;1721849272991814" style="width:100%;min-height:140px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:monospace;font-size:0.82rem;padding:0.75rem;outline:none;resize:vertical;line-height:1.6"></textarea>
+        <div style="display:flex;gap:0.75rem;margin-top:0.75rem;align-items:center">
+          <input type="number" id="batchValor" placeholder="Valor (R$) opcional" step="0.01" min="0" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:'Inter',sans-serif;font-size:0.85rem;padding:0.6rem 0.75rem;outline:none;width:180px">
+          <button class="btn-add" id="btnBatch">Importar Lote</button>
+          <span id="batchStatus" style="font-size:0.82rem;color:var(--text-muted)"></span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -285,6 +296,10 @@ const searchInput = $('searchInput');
 // Cadastro
 const addBar = $('addBar');
 const btnAdd = $('btnAdd');
+const batchInput = $('batchInput');
+const batchValor = $('batchValor');
+const btnBatch = $('btnBatch');
+const batchStatus = $('batchStatus');
 
 // Users
 const newUserEmail = $('newUserEmail');
@@ -449,6 +464,77 @@ btnAdd.addEventListener('click', async () => {
   }
 });
 addBar.addEventListener('keydown', e => { if (e.key === 'Enter') btnAdd.click(); });
+
+// BATCH IMPORT
+btnBatch.addEventListener('click', async () => {
+  const raw = batchInput.value.trim();
+  if (!raw) { batchInput.focus(); return; }
+  const valor = batchValor.value ? parseFloat(batchValor.value) : null;
+  const lines = raw.split('\n').map(l => l.trim()).filter(l => l);
+  if (!lines.length) return;
+
+  btnBatch.disabled = true;
+  batchStatus.textContent = 'Importando...';
+  let ok = 0, fail = 0;
+
+  // Detectar tipo pelo nome
+  function detectTipo(desc) {
+    const d = desc.toLowerCase();
+    if (d.includes('anual')) return 'anual';
+    if (d.includes('trimestral')) return 'trimestral';
+    return 'mensal';
+  }
+
+  // Processar em batches de 500 (limite do Firestore)
+  const batch_size = 450;
+  for (let i = 0; i < lines.length; i += batch_size) {
+    const chunk = lines.slice(i, i + batch_size);
+    const batch = db.batch();
+    for (const line of chunk) {
+      // Aceita TAB ou multiplos espacos como separador
+      const parts = line.split(/\t+/);
+      let desc, code;
+      if (parts.length >= 2) {
+        desc = parts[0].trim();
+        code = parts.slice(1).join(' ').trim();
+      } else {
+        // Tenta separar por 2+ espacos
+        const parts2 = line.split(/\s{2,}/);
+        if (parts2.length >= 2) {
+          desc = parts2[0].trim();
+          code = parts2.slice(1).join(' ').trim();
+        } else {
+          desc = line;
+          code = '';
+        }
+      }
+      if (!desc) { fail++; continue; }
+      const ref = db.collection('giftcards').doc();
+      batch.set(ref, {
+        desc, code, valor, tipo: detectTipo(desc),
+        usado: false, dataUso: null,
+        criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+        criadoPor: currentUser.uid
+      });
+      ok++;
+    }
+    try {
+      await batch.commit();
+    } catch(e) {
+      fail += chunk.length;
+      ok -= chunk.length;
+      console.error('Batch error:', e);
+    }
+    batchStatus.textContent = 'Importando... ' + Math.min(i + batch_size, lines.length) + '/' + lines.length;
+  }
+
+  batchStatus.textContent = ok + ' importados' + (fail ? ', ' + fail + ' erros' : '');
+  if (ok > 0) {
+    batchInput.value = '';
+    toast(ok + ' gift cards importados!');
+  }
+  btnBatch.disabled = false;
+});
 
 // MARK USED
 window.marcarUsado = async function(id) {
