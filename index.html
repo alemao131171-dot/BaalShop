@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Controle de Gift Cards</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0f1117;--surface:#1a1d27;--surface-2:#242836;--border:#2e3345;--text:#e4e6ed;--text-muted:#8b90a0;--mensal:#6c5ce7;--trimestral:#00b894;--anual:#e17055;--usado:#636e83;--accent:#a29bfe;--danger:#ff6b6b;--radius:10px}
+body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+
+/* ========== SCREENS ========== */
+.screen{display:none;min-height:100vh}
+.screen.active{display:block}
+
+/* ========== NAVBAR ========== */
+.navbar{background:var(--surface);border-bottom:1px solid var(--border);padding:0.75rem 1.5rem;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.navbar h1{font-family:"Space Grotesk",sans-serif;font-size:1.25rem;font-weight:700;letter-spacing:-0.5px}
+.navbar-right{display:flex;align-items:center;gap:1rem}
+.navbar-user{font-size:0.82rem;color:var(--text-muted)}
+.nav-links{display:flex;gap:0.25rem}
+.nav-link{background:none;border:1px solid transparent;border-radius:var(--radius);color:var(--text-muted);font-family:"Inter",sans-serif;font-size:0.82rem;font-weight:500;padding:0.45rem 0.9rem;cursor:pointer;transition:all 0.2s}
+.nav-link:hover{color:var(--text);background:var(--surface-2)}
+.nav-link.active{color:var(--accent);border-color:var(--accent);background:rgba(162,155,254,0.08)}
+.btn-logout{background:none;border:1px solid var(--border);border-radius:var(--radius);color:var(--danger);font-family:"Inter",sans-serif;font-size:0.78rem;font-weight:500;padding:0.4rem 0.75rem;cursor:pointer;transition:all 0.2s}
+.btn-logout:hover{background:rgba(255,107,107,0.1);border-color:var(--danger)}
+
+/* ========== AUTH SCREENS ========== */
+.auth-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:1.5rem}
+.auth-box{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:2.5rem 2rem;width:100%;max-width:380px}
+.auth-box h2{font-family:"Space Grotesk",sans-serif;font-size:1.5rem;text-align:center;margin-bottom:0.25rem}
+.auth-box .subtitle{color:var(--text-muted);text-align:center;font-size:0.85rem;margin-bottom:1.75rem}
+.auth-field{margin-bottom:1rem}
+.auth-field label{display:block;font-size:0.8rem;font-weight:500;color:var(--text-muted);margin-bottom:0.35rem}
+.auth-field input{width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:"Inter",sans-serif;font-size:0.9rem;padding:0.7rem 0.85rem;outline:none;transition:border-color 0.2s}
+.auth-field input:focus{border-color:var(--accent)}
+.auth-btn{width:100%;background:var(--accent);color:var(--bg);border:none;border-radius:var(--radius);font-family:"Inter",sans-serif;font-size:0.9rem;font-weight:600;padding:0.75rem;cursor:pointer;margin-top:0.5rem;transition:opacity 0.2s}
+.auth-btn:hover{opacity:0.85}
+.auth-btn:disabled{opacity:0.5;cursor:not-allowed}
+.auth-footer{text-align:center;margin-top:1.25rem;font-size:0.82rem;color:var(--text-muted)}
+.auth-footer a{color:var(--accent);cursor:pointer;text-decoration:none}
+.auth-footer a:hover{text-decoration:underline}
+.auth-error{background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.25);border-radius:8px;color:var(--danger);font-size:0.82rem;padding:0.6rem 0.85rem;margin-bottom:1rem;display:none}
+
+/* ========== CONTENT ========== */
+.content{max-width:960px;margin:0 auto;padding:1.5rem}
+.page-title{font-family:"Space Grotesk",sans-serif;font-size:1.3rem;font-weight:700;margin-bottom:1.25rem}
+
+/* ========== STATS ========== */
+.stats{display:flex;gap:0.75rem;margin-bottom:1.5rem;flex-wrap:wrap}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:0.6rem 1rem;font-size:0.8rem;display:flex;align-items:center;gap:0.5rem}
+.stat .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.stat strong{font-weight:600;font-size:1.1rem}
+
+/* ========== TABS ========== */
+.tabs{display:flex;gap:0.25rem;margin-bottom:1.25rem;border-bottom:1px solid var(--border);overflow-x:auto}
+.tab{background:none;border:none;color:var(--text-muted);font-family:"Inter",sans-serif;font-size:0.85rem;font-weight:500;padding:0.6rem 1rem;cursor:pointer;border-bottom:2px solid transparent;transition:all 0.2s;white-space:nowrap}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab .badge{background:var(--surface-2);border-radius:10px;padding:1px 7px;font-size:0.75rem;margin-left:4px}
+.tab.active .badge{background:var(--accent);color:var(--bg)}
+
+/* ========== ADD BAR ========== */
+.add-bar{display:flex;gap:0.5rem;margin-bottom:1.5rem;flex-wrap:wrap}
+.add-bar input,.add-bar select{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:"Inter",sans-serif;font-size:0.85rem;padding:0.6rem 0.75rem;outline:none;transition:border-color 0.2s}
+.add-bar input:focus,.add-bar select:focus{border-color:var(--accent)}
+.add-bar input[name="desc"]{flex:1;min-width:140px}
+.add-bar input[name="code"]{width:160px}
+.add-bar input[name="valor"]{width:110px}
+.add-bar select{width:130px}
+.btn-add{background:var(--accent);color:var(--bg);border:none;border-radius:var(--radius);font-family:"Inter",sans-serif;font-size:0.85rem;font-weight:600;padding:0.6rem 1.25rem;cursor:pointer;transition:opacity 0.2s;white-space:nowrap}
+.btn-add:hover{opacity:0.85}
+
+/* ========== SEARCH ========== */
+.search-bar{margin-bottom:1rem}
+.search-bar input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:"Inter",sans-serif;font-size:0.85rem;padding:0.6rem 0.75rem;outline:none;transition:border-color 0.2s}
+.search-bar input:focus{border-color:var(--accent)}
+
+/* ========== CARD LIST ========== */
+.card-list{display:flex;flex-direction:column;gap:0.5rem}
+.card-item{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:0.85rem 1rem;display:flex;align-items:center;gap:0.75rem;border-left:3px solid var(--border);transition:background 0.15s}
+.card-item[data-tipo="mensal"]{border-left-color:var(--mensal)}
+.card-item[data-tipo="trimestral"]{border-left-color:var(--trimestral)}
+.card-item[data-tipo="anual"]{border-left-color:var(--anual)}
+.card-item[data-tipo="usado"]{border-left-color:var(--usado);opacity:0.7}
+.card-info{flex:1;min-width:0}
+.card-info .desc{font-weight:500;font-size:0.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card-info .meta{font-size:0.78rem;color:var(--text-muted);margin-top:2px;display:flex;gap:0.75rem;flex-wrap:wrap}
+.card-info .meta .code-tag{background:var(--surface-2);padding:1px 6px;border-radius:4px;font-family:monospace;font-size:0.75rem;letter-spacing:0.5px}
+.tipo-badge{font-size:0.7rem;font-weight:600;text-transform:uppercase;padding:3px 8px;border-radius:4px;letter-spacing:0.5px;flex-shrink:0}
+.tipo-badge.mensal{background:rgba(108,92,231,0.15);color:var(--mensal)}
+.tipo-badge.trimestral{background:rgba(0,184,148,0.15);color:var(--trimestral)}
+.tipo-badge.anual{background:rgba(225,112,85,0.15);color:var(--anual)}
+.tipo-badge.usado{background:rgba(99,110,131,0.15);color:var(--usado)}
+.card-actions{display:flex;gap:0.4rem;flex-shrink:0;align-items:center}
+.card-actions input[type="date"]{background:var(--surface-2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:"Inter",sans-serif;font-size:0.78rem;padding:0.35rem 0.5rem;outline:none;width:135px}
+.card-actions input[type="date"]:focus{border-color:var(--accent)}
+.btn-use{background:var(--accent);color:var(--bg);border:none;border-radius:6px;font-size:0.75rem;font-weight:600;padding:0.4rem 0.7rem;cursor:pointer;white-space:nowrap}
+.btn-use:hover{opacity:0.85}
+.btn-delete{background:none;border:1px solid var(--border);border-radius:6px;color:var(--danger);font-size:0.78rem;padding:0.35rem 0.55rem;cursor:pointer}
+.btn-delete:hover{background:rgba(255,107,107,0.1);border-color:var(--danger)}
+.used-date{font-size:0.78rem;color:var(--text-muted);white-space:nowrap}
+.empty{text-align:center;padding:3rem 1rem;color:var(--text-muted);font-size:0.9rem}
+.empty svg{margin-bottom:0.75rem;opacity:0.3}
+
+/* ========== USER MGMT ========== */
+.user-list{display:flex;flex-direction:column;gap:0.5rem;margin-top:1rem}
+.user-item{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:0.75rem 1rem;display:flex;align-items:center;justify-content:space-between}
+.user-item .user-email{font-size:0.88rem;font-weight:500}
+.user-item .user-date{font-size:0.78rem;color:var(--text-muted)}
+.btn-remove-user{background:none;border:1px solid var(--border);border-radius:6px;color:var(--danger);font-size:0.78rem;padding:0.35rem 0.55rem;cursor:pointer}
+.btn-remove-user:hover{background:rgba(255,107,107,0.1);border-color:var(--danger)}
+
+/* ========== LOADING ========== */
+.loading-overlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999}
+.loading-overlay .spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ========== TOAST ========== */
+.toast{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:0.65rem 1.25rem;font-size:0.82rem;z-index:999;opacity:0;transition:opacity 0.3s;pointer-events:none}
+.toast.show{opacity:1}
+.toast.error{border-color:rgba(255,107,107,0.4);color:var(--danger)}
+
+@media(max-width:600px){
+.navbar{padding:0.6rem 1rem;flex-wrap:wrap;gap:0.5rem}
+.navbar-right{width:100%;justify-content:space-between}
+.content{padding:1rem}
+.add-bar{flex-direction:column}
+.add-bar input,.add-bar select{width:100%!important}
+.card-item{flex-wrap:wrap}
+.card-actions{width:100%;justify-content:flex-end;margin-top:0.5rem}
+.auth-box{padding:2rem 1.5rem}
+}
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div class="loading-overlay" id="loadingOverlay"><div class="spinner"></div></div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- ======================== LOGIN ======================== -->
+<div class="screen" id="screenLogin">
+  <div class="auth-wrap">
+    <div class="auth-box">
+      <h2>Gift Cards</h2>
+      <p class="subtitle">Acesse sua conta para continuar</p>
+      <div class="auth-error" id="loginError"></div>
+      <div class="auth-field">
+        <label>E-mail</label>
+        <input type="email" id="loginEmail" placeholder="seu@email.com" autocomplete="email">
+      </div>
+      <div class="auth-field">
+        <label>Senha</label>
+        <input type="password" id="loginPassword" placeholder="Sua senha" autocomplete="current-password">
+      </div>
+      <button class="auth-btn" id="btnLogin">Entrar</button>
+      <p class="auth-footer">Esqueceu a senha? <a id="linkReset">Redefinir</a></p>
+    </div>
+  </div>
+</div>
+
+<!-- ======================== MAIN APP ======================== -->
+<div class="screen" id="screenApp">
+  <nav class="navbar">
+    <h1>Gift Cards</h1>
+    <div class="navbar-right">
+      <div class="nav-links">
+        <button class="nav-link active" data-page="list">Lista</button>
+        <button class="nav-link" data-page="cadastro">Cadastro</button>
+        <button class="nav-link" data-page="usuarios" id="navUsuarios" style="display:none">Usuarios</button>
+      </div>
+      <span class="navbar-user" id="navUser"></span>
+      <button class="btn-logout" id="btnLogout">Sair</button>
+    </div>
+  </nav>
+
+  <!-- PAGE: LIST -->
+  <div class="page" id="pageList">
+    <div class="content">
+      <div class="stats" id="stats"></div>
+      <div class="search-bar">
+        <input type="text" id="searchInput" placeholder="Buscar gift card...">
+      </div>
+      <div class="tabs" id="tabs">
+        <button class="tab active" data-tab="todos">Todos <span class="badge">0</span></button>
+        <button class="tab" data-tab="mensal">Mensal <span class="badge">0</span></button>
+        <button class="tab" data-tab="trimestral">Trimestral <span class="badge">0</span></button>
+        <button class="tab" data-tab="anual">Anual <span class="badge">0</span></button>
+        <button class="tab" data-tab="usados">Usados <span class="badge">0</span></button>
+      </div>
+      <div class="card-list" id="cardList"></div>
+    </div>
+  </div>
+
+  <!-- PAGE: CADASTRO -->
+  <div class="page" id="pageCadastro" style="display:none">
+    <div class="content">
+      <h2 class="page-title">Cadastrar Gift Card</h2>
+      <div class="add-bar" id="addBar" style="flex-direction:column">
+        <input name="desc" placeholder="Descricao do gift card" autocomplete="off">
+        <input name="code" placeholder="Codigo / No" autocomplete="off">
+        <input name="valor" placeholder="Valor (R$)" type="number" step="0.01" min="0" style="width:100%!important">
+        <select name="tipo" style="width:100%!important">
+          <option value="mensal">Mensal</option>
+          <option value="trimestral">Trimestral</option>
+          <option value="anual">Anual</option>
+        </select>
+        <button class="btn-add" id="btnAdd">+ Adicionar Gift Card</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAGE: USUARIOS -->
+  <div class="page" id="pageUsuarios" style="display:none">
+    <div class="content">
+      <h2 class="page-title">Cadastrar Usuario</h2>
+      <div class="add-bar" style="flex-direction:column">
+        <input type="email" id="newUserEmail" placeholder="E-mail do novo usuario" autocomplete="off">
+        <input type="password" id="newUserPass" placeholder="Senha (min 6 caracteres)" autocomplete="off">
+        <select id="newUserRole" style="width:100%!important">
+          <option value="user">Usuario</option>
+          <option value="admin">Administrador</option>
+        </select>
+        <button class="btn-add" id="btnCreateUser">+ Criar Usuario</button>
+      </div>
+      <div class="user-list" id="userList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- FIREBASE -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+// ============================================================
+// FIREBASE CONFIG - SUBSTITUA COM SEUS DADOS DO FIREBASE
+// ============================================================
+const firebaseConfig = {
+  apiKey: "AIzaSyCFJXTPi3-hkvqIhNGB0O_ym2PH6p_vN1g",
+  authDomain: "baalshopgiftcards.firebaseapp.com",
+  projectId: "baalshopgiftcards",
+  storageBucket: "baalshopgiftcards.firebasestorage.app",
+  messagingSenderId: "786012992709",
+  appId: "1:786012992709:web:48979369d15d31724a2cac"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+// ============================================================
+// DOM REFS
+// ============================================================
+const $ = s => document.getElementById(s);
+const screenLogin = $('screenLogin');
+const screenApp = $('screenApp');
+const loadingOverlay = $('loadingOverlay');
+const toastEl = $('toast');
+const loginError = $('loginError');
+
+// Auth
+const loginEmail = $('loginEmail');
+const loginPassword = $('loginPassword');
+const btnLogin = $('btnLogin');
+const linkReset = $('linkReset');
+const btnLogout = $('btnLogout');
+const navUser = $('navUser');
+const navUsuarios = $('navUsuarios');
+
+// Pages
+const pageList = $('pageList');
+const pageCadastro = $('pageCadastro');
+const pageUsuarios = $('pageUsuarios');
+
+// List
+const statsEl = $('stats');
+const tabsEl = $('tabs');
+const cardListEl = $('cardList');
+const searchInput = $('searchInput');
+
+// Cadastro
+const addBar = $('addBar');
+const btnAdd = $('btnAdd');
+
+// Users
+const newUserEmail = $('newUserEmail');
+const newUserPass = $('newUserPass');
+const newUserRole = $('newUserRole');
+const btnCreateUser = $('btnCreateUser');
+const userListEl = $('userList');
+
+// ============================================================
+// STATE
+// ============================================================
+let cards = [];
+let users = [];
+let currentUser = null;
+let currentUserDoc = null;
+let activeTab = 'todos';
+let searchQuery = '';
+let currentPage = 'list';
+let unsubCards = null;
+let unsubUsers = null;
+
+// ============================================================
+// UTILS
+// ============================================================
+function toast(msg, isError) {
+  toastEl.textContent = msg;
+  toastEl.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(() => toastEl.className = 'toast', 2500);
+}
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function fmtV(v) { return v.toLocaleString('pt-BR', { minimumFractionDigits: 2 }); }
+function showError(el, msg) { el.textContent = msg; el.style.display = 'block'; }
+function hideError(el) { el.style.display = 'none'; }
+
+// ============================================================
+// AUTH
+// ============================================================
+auth.onAuthStateChanged(async user => {
+  if (user) {
+    currentUser = user;
+    try {
+      const doc = await db.collection('users').doc(user.uid).get();
+      currentUserDoc = doc.exists ? doc.data() : { role: 'user' };
+    } catch(e) {
+      currentUserDoc = { role: 'user' };
+    }
+    navUser.textContent = user.email;
+    if (currentUserDoc.role === 'admin') {
+      navUsuarios.style.display = '';
+    } else {
+      navUsuarios.style.display = 'none';
+    }
+    showScreen('app');
+    subscribeCards();
+    if (currentUserDoc.role === 'admin') subscribeUsers();
+  } else {
+    currentUser = null;
+    currentUserDoc = null;
+    if (unsubCards) { unsubCards(); unsubCards = null; }
+    if (unsubUsers) { unsubUsers(); unsubUsers = null; }
+    cards = [];
+    users = [];
+    showScreen('login');
+  }
+  loadingOverlay.style.display = 'none';
+});
+
+btnLogin.addEventListener('click', async () => {
+  hideError(loginError);
+  const email = loginEmail.value.trim();
+  const pass = loginPassword.value;
+  if (!email || !pass) { showError(loginError, 'Preencha todos os campos'); return; }
+  btnLogin.disabled = true;
+  try {
+    await auth.signInWithEmailAndPassword(email, pass);
+  } catch(e) {
+    const msgs = {
+      'auth/user-not-found': 'Usuario nao encontrado',
+      'auth/wrong-password': 'Senha incorreta',
+      'auth/invalid-email': 'E-mail invalido',
+      'auth/too-many-requests': 'Muitas tentativas. Tente mais tarde',
+      'auth/invalid-credential': 'Credenciais invalidas'
+    };
+    showError(loginError, msgs[e.code] || e.message);
+  }
+  btnLogin.disabled = false;
+});
+
+[loginEmail, loginPassword].forEach(el => el.addEventListener('keydown', e => { if (e.key === 'Enter') btnLogin.click(); }));
+
+linkReset.addEventListener('click', async () => {
+  const email = loginEmail.value.trim();
+  if (!email) { showError(loginError, 'Digite seu e-mail acima para redefinir'); return; }
+  try {
+    await auth.sendPasswordResetEmail(email);
+    toast('E-mail de redefinicao enviado!');
+  } catch(e) {
+    showError(loginError, 'Erro ao enviar e-mail de redefinicao');
+  }
+});
+
+btnLogout.addEventListener('click', () => auth.signOut());
+
+// ============================================================
+// SCREENS & PAGES
+// ============================================================
+function showScreen(name) {
+  screenLogin.classList.remove('active');
+  screenApp.classList.remove('active');
+  if (name === 'login') screenLogin.classList.add('active');
+  else screenApp.classList.add('active');
+}
+
+document.querySelectorAll('.nav-link').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.nav-link').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    switchPage(btn.dataset.page);
+  });
+});
+
+function switchPage(page) {
+  currentPage = page;
+  pageList.style.display = page === 'list' ? '' : 'none';
+  pageCadastro.style.display = page === 'cadastro' ? '' : 'none';
+  pageUsuarios.style.display = page === 'usuarios' ? '' : 'none';
+}
+
+// ============================================================
+// FIRESTORE - GIFT CARDS (realtime)
+// ============================================================
+function subscribeCards() {
+  unsubCards = db.collection('giftcards').orderBy('criadoEm', 'desc').onSnapshot(snap => {
+    cards = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderCards();
+  }, err => {
+    console.error('Firestore cards error:', err);
+    toast('Erro ao carregar gift cards', true);
+  });
+}
+
+// ADD
+btnAdd.addEventListener('click', async () => {
+  const desc = addBar.querySelector('[name="desc"]').value.trim();
+  const code = addBar.querySelector('[name="code"]').value.trim();
+  const valor = addBar.querySelector('[name="valor"]').value;
+  const tipo = addBar.querySelector('[name="tipo"]').value;
+  if (!desc) { addBar.querySelector('[name="desc"]').focus(); return; }
+  try {
+    await db.collection('giftcards').add({
+      desc, code, valor: valor ? parseFloat(valor) : null, tipo,
+      usado: false, dataUso: null,
+      criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      criadoPor: currentUser.uid
+    });
+    addBar.querySelector('[name="desc"]').value = '';
+    addBar.querySelector('[name="code"]').value = '';
+    addBar.querySelector('[name="valor"]').value = '';
+    toast('Gift card adicionado!');
+  } catch(e) {
+    toast('Erro ao adicionar', true);
+  }
+});
+addBar.addEventListener('keydown', e => { if (e.key === 'Enter') btnAdd.click(); });
+
+// MARK USED
+window.marcarUsado = async function(id) {
+  const el = document.querySelector('.card-item[data-id="'+id+'"] input[type="date"]');
+  const dt = el ? el.value : '';
+  if (!dt) { if (el) el.focus(); return; }
+  try {
+    await db.collection('giftcards').doc(id).update({ usado: true, dataUso: dt });
+    toast('Marcado como usado');
+  } catch(e) { toast('Erro ao atualizar', true); }
+};
+
+// UNDO
+window.desfazerUso = async function(id) {
+  try {
+    await db.collection('giftcards').doc(id).update({ usado: false, dataUso: null });
+    toast('Uso desfeito');
+  } catch(e) { toast('Erro ao desfazer', true); }
+};
+
+// DELETE
+window.excluir = async function(id) {
+  if (!confirm('Excluir este gift card?')) return;
+  try {
+    await db.collection('giftcards').doc(id).delete();
+    toast('Excluido');
+  } catch(e) { toast('Erro ao excluir', true); }
+};
+
+// TABS
+tabsEl.addEventListener('click', e => {
+  const tab = e.target.closest('.tab');
+  if (!tab) return;
+  activeTab = tab.dataset.tab;
+  tabsEl.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  renderCards();
+});
+
+searchInput.addEventListener('input', e => { searchQuery = e.target.value.toLowerCase().trim(); renderCards(); });
+
+// RENDER
+function renderCards() {
+  const ativos = cards.filter(c => !c.usado);
+  const usados = cards.filter(c => c.usado);
+  const tA = ativos.reduce((s,c) => s + (c.valor||0), 0);
+  const tU = usados.reduce((s,c) => s + (c.valor||0), 0);
+
+  statsEl.innerHTML = '<div class="stat"><span class="dot" style="background:var(--accent)"></span>Ativos: <strong>'+ativos.length+'</strong></div><div class="stat"><span class="dot" style="background:var(--usado)"></span>Usados: <strong>'+usados.length+'</strong></div><div class="stat"><span class="dot" style="background:var(--mensal)"></span>R$ ativo: <strong>'+fmtV(tA)+'</strong></div><div class="stat"><span class="dot" style="background:var(--trimestral)"></span>R$ Usado: <strong>'+fmtV(tU)+'</strong></div>';
+
+  const cn = {
+    todos: ativos.length,
+    mensal: cards.filter(c => !c.usado && c.tipo==='mensal').length,
+    trimestral: cards.filter(c => !c.usado && c.tipo==='trimestral').length,
+    anual: cards.filter(c => !c.usado && c.tipo==='anual').length,
+    usados: usados.length
+  };
+  tabsEl.querySelectorAll('.tab').forEach(t => {
+    const b = t.querySelector('.badge');
+    if (b) b.textContent = cn[t.dataset.tab] || 0;
+  });
+
+  let filtered;
+  if (activeTab === 'usados') filtered = cards.filter(c => c.usado);
+  else if (activeTab === 'todos') filtered = cards.filter(c => !c.usado);
+  else filtered = cards.filter(c => !c.usado && c.tipo === activeTab);
+
+  if (searchQuery) filtered = filtered.filter(c => c.desc.toLowerCase().includes(searchQuery) || (c.code && c.code.toLowerCase().includes(searchQuery)));
+
+  if (!filtered.length) {
+    cardListEl.innerHTML = '<div class="empty"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg><div>'+(activeTab==='usados'?'Nenhum gift card usado ainda':'Nenhum gift card nesta categoria')+'</div></div>';
+    return;
+  }
+
+  cardListEl.innerHTML = filtered.map(c => {
+    const tl = c.usado ? 'usado' : c.tipo;
+    const vl = c.valor != null ? 'R$ ' + fmtV(c.valor) : '';
+    let act = '';
+    if (c.usado) {
+      const d = c.dataUso ? new Date(c.dataUso+'T12:00:00').toLocaleDateString('pt-BR') : '';
+      act = '<span class="used-date">Usado em '+d+'</span><button class="btn-delete" onclick="desfazerUso(\''+c.id+'\')">&#8617;</button><button class="btn-delete" onclick="excluir(\''+c.id+'\')">&#10005;</button>';
+    } else {
+      act = '<input type="date"><button class="btn-use" onclick="marcarUsado(\''+c.id+'\')">Usar</button><button class="btn-delete" onclick="excluir(\''+c.id+'\')">&#10005;</button>';
+    }
+    return '<div class="card-item" data-tipo="'+tl+'" data-id="'+c.id+'"><div class="card-info"><div class="desc">'+esc(c.desc)+'</div><div class="meta">'+(c.code?'<span class="code-tag">'+esc(c.code)+'</span>':'')+(vl?'<span>'+vl+'</span>':'')+'</div></div><span class="tipo-badge '+tl+'">'+tl+'</span><div class="card-actions">'+act+'</div></div>';
+  }).join('');
+}
+
+// ============================================================
+// FIRESTORE - USERS (admin only)
+// ============================================================
+function subscribeUsers() {
+  unsubUsers = db.collection('users').orderBy('criadoEm', 'desc').onSnapshot(snap => {
+    users = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderUsers();
+  });
+}
+
+btnCreateUser.addEventListener('click', async () => {
+  const email = newUserEmail.value.trim();
+  const pass = newUserPass.value;
+  const role = newUserRole.value;
+  if (!email || !pass) { toast('Preencha e-mail e senha', true); return; }
+  if (pass.length < 6) { toast('Senha deve ter no minimo 6 caracteres', true); return; }
+
+  // Salvar credenciais do admin antes de criar o novo user
+  const adminEmail = currentUser.email;
+  const adminPass = prompt('Digite SUA senha de admin para confirmar:');
+  if (!adminPass) return;
+
+  try {
+    // Criar usuario no Auth
+    const cred = await auth.createUserWithEmailAndPassword(email, pass);
+    // Salvar doc no Firestore
+    await db.collection('users').doc(cred.user.uid).set({
+      email, role,
+      criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      criadoPor: currentUser ? currentUser.uid : null
+    });
+    // Firebase Auth troca o usuario logado ao criar, entao re-logar como admin
+    await auth.signInWithEmailAndPassword(adminEmail, adminPass);
+
+    newUserEmail.value = '';
+    newUserPass.value = '';
+    toast('Usuario criado!');
+  } catch(e) {
+    // Tentar re-logar como admin mesmo em caso de erro
+    try { await auth.signInWithEmailAndPassword(adminEmail, adminPass); } catch(e2) {}
+    const msgs = {
+      'auth/email-already-in-use': 'E-mail ja esta em uso',
+      'auth/invalid-email': 'E-mail invalido',
+      'auth/weak-password': 'Senha muito fraca'
+    };
+    toast(msgs[e.code] || e.message, true);
+  }
+});
+
+function renderUsers() {
+  if (!users.length) { userListEl.innerHTML = '<div class="empty">Nenhum usuario cadastrado</div>'; return; }
+  userListEl.innerHTML = users.map(u => {
+    const date = u.criadoEm ? u.criadoEm.toDate().toLocaleDateString('pt-BR') : '';
+    const roleLabel = u.role === 'admin' ? ' (admin)' : '';
+    const isSelf = u.id === (currentUser ? currentUser.uid : '');
+    return '<div class="user-item"><div><div class="user-email">'+esc(u.email)+roleLabel+'</div><div class="user-date">Criado em '+date+'</div></div>'+(isSelf?'<span style="font-size:0.75rem;color:var(--text-muted)">Voce</span>':'<button class="btn-remove-user" onclick="removeUser(\''+u.id+'\')">&#10005;</button>')+'</div>';
+  }).join('');
+}
+
+window.removeUser = async function(uid) {
+  if (!confirm('Remover este usuario? (Apenas o registro sera removido. Para desativar o login, use o console do Firebase.)')) return;
+  try {
+    await db.collection('users').doc(uid).delete();
+    toast('Registro removido');
+  } catch(e) { toast('Erro ao remover', true); }
+};
+</script>
+</body>
+</html>
