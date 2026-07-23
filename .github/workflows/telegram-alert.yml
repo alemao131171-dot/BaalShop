@@ -1,0 +1,27 @@
+name: Alerta Telegram Diario
+
+on:
+  schedule:
+    # 10:00 horario de Brasilia = 13:00 UTC
+    - cron: '0 13 * * *'
+  workflow_dispatch: # permite rodar manualmente
+
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Instalar dependencias
+        run: npm install firebase-admin@12
+
+      - name: Enviar alerta
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node scripts/telegram-alert.js
