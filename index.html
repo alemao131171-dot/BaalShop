@@ -95,6 +95,30 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
 .loading-overlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999}
 .loading-overlay .spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+/* ========== DASHBOARD ========== */
+.dash-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0.75rem;margin-bottom:1.5rem}
+.dash-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.25rem;position:relative;overflow:hidden}
+.dash-card .dash-label{font-size:0.78rem;color:var(--text-muted);font-weight:500;margin-bottom:0.35rem}
+.dash-card .dash-value{font-family:"Space Grotesk",sans-serif;font-size:1.75rem;font-weight:700;line-height:1.2}
+.dash-card .dash-sub{font-size:0.75rem;color:var(--text-muted);margin-top:0.25rem}
+.dash-card .dash-icon{position:absolute;top:1rem;right:1rem;font-size:1.5rem;opacity:0.15}
+.dash-row{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem}
+.dash-section{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.25rem}
+.dash-section h3{font-family:"Space Grotesk",sans-serif;font-size:1rem;font-weight:600;margin-bottom:1rem}
+.dash-bar-row{display:flex;align-items:center;gap:0.5rem;margin-bottom:0.6rem;font-size:0.82rem}
+.dash-bar-row .bar-label{width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0}
+.dash-bar-row .bar-track{flex:1;height:20px;background:var(--surface-2);border-radius:4px;overflow:hidden}
+.dash-bar-row .bar-fill{height:100%;border-radius:4px;min-width:2px;transition:width 0.4s}
+.dash-bar-row .bar-count{width:40px;text-align:right;color:var(--text-muted);font-size:0.78rem;flex-shrink:0}
+.dash-recent{list-style:none;max-height:280px;overflow-y:auto}
+.dash-recent li{padding:0.5rem 0;border-bottom:1px solid var(--border);font-size:0.82rem;display:flex;justify-content:space-between;gap:0.5rem}
+.dash-recent li:last-child{border-bottom:none}
+.dash-recent .r-desc{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dash-recent .r-meta{color:var(--text-muted);font-size:0.75rem;white-space:nowrap}
+@media(max-width:600px){
+.dash-row{grid-template-columns:1fr}
+.dash-grid{grid-template-columns:1fr 1fr}
+}
 .toast{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:0.65rem 1.25rem;font-size:0.82rem;z-index:999;opacity:0;transition:opacity 0.3s;pointer-events:none}
 .toast.show{opacity:1}
 .toast.error{border-color:rgba(255,107,107,0.4);color:var(--danger)}
@@ -141,7 +165,8 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
     <h1>Gift Cards</h1>
     <div class="navbar-right">
       <div class="nav-links">
-        <button class="nav-link active" data-page="list">Lista</button>
+        <button class="nav-link active" data-page="dashboard">Dashboard</button>
+        <button class="nav-link" data-page="list">Lista</button>
         <button class="nav-link" data-page="cadastro">Cadastro</button>
         <button class="nav-link" data-page="clientes">Clientes</button>
         <button class="nav-link" data-page="categorias">Categorias</button>
@@ -152,8 +177,36 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
     </div>
   </nav>
 
+  <!-- PAGE: DASHBOARD -->
+  <div class="page" id="pageDashboard">
+    <div class="content">
+      <h2 class="page-title">Dashboard</h2>
+      <div class="dash-grid" id="dashCards"></div>
+      <div class="dash-row">
+        <div class="dash-section">
+          <h3>Por Tipo</h3>
+          <div id="dashByTipo"></div>
+        </div>
+        <div class="dash-section">
+          <h3>Por Categoria</h3>
+          <div id="dashByCat"></div>
+        </div>
+      </div>
+      <div class="dash-row">
+        <div class="dash-section">
+          <h3>Top Clientes</h3>
+          <div id="dashTopCli"></div>
+        </div>
+        <div class="dash-section">
+          <h3>Ultimos Usados</h3>
+          <ul class="dash-recent" id="dashRecent"></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- PAGE: LIST -->
-  <div class="page" id="pageList">
+  <div class="page" id="pageList" style="display:none">
     <div class="content">
       <div class="stats" id="stats"></div>
       <div class="search-bar">
@@ -276,6 +329,9 @@ const btnLogin = $('btnLogin'), linkReset = $('linkReset'), btnLogout = $('btnLo
 const navUser = $('navUser'), navUsuarios = $('navUsuarios');
 const pageList = $('pageList'), pageCadastro = $('pageCadastro');
 const pageClientes = $('pageClientes'), pageCategorias = $('pageCategorias'), pageUsuarios = $('pageUsuarios');
+const pageDashboard = $('pageDashboard');
+const dashCardsEl = $('dashCards'), dashByTipo = $('dashByTipo'), dashByCat = $('dashByCat');
+const dashTopCli = $('dashTopCli'), dashRecent = $('dashRecent');
 const statsEl = $('stats'), tabsEl = $('tabs'), cardListEl = $('cardList'), searchInput = $('searchInput');
 const addBar = $('addBar'), btnAdd = $('btnAdd'), addCategoria = $('addCategoria');
 const batchInput = $('batchInput'), batchValor = $('batchValor'), batchCategoria = $('batchCategoria'), btnBatch = $('btnBatch'), batchStatus = $('batchStatus');
@@ -286,7 +342,7 @@ const newUserEmail = $('newUserEmail'), newUserPass = $('newUserPass'), newUserR
 const btnCreateUser = $('btnCreateUser'), userListEl = $('userList');
 
 let cards=[], users=[], clientes=[], categorias=[], currentUser=null, currentUserDoc=null;
-let activeTab='todos', searchQuery='', cliSearchQuery='', currentPage='list';
+let activeTab='todos', searchQuery='', cliSearchQuery='', currentPage='dashboard';
 let unsubCards=null, unsubUsers=null, unsubClientes=null, unsubCats=null;
 
 function toast(msg,isErr){toastEl.textContent=msg;toastEl.className='toast show'+(isErr?' error':'');setTimeout(()=>toastEl.className='toast',2500)}
@@ -350,11 +406,13 @@ document.querySelectorAll('.nav-link').forEach(btn=>{
 
 function switchPage(page){
   currentPage=page;
+  pageDashboard.style.display=page==='dashboard'?'':'none';
   pageList.style.display=page==='list'?'':'none';
   pageCadastro.style.display=page==='cadastro'?'':'none';
   pageClientes.style.display=page==='clientes'?'':'none';
   pageCategorias.style.display=page==='categorias'?'':'none';
   pageUsuarios.style.display=page==='usuarios'?'':'none';
+  if(page==='dashboard') renderDashboard();
 }
 
 // ============================================================
@@ -362,7 +420,7 @@ function switchPage(page){
 // ============================================================
 function subscribeCards(){
   unsubCards=db.collection('giftcards').orderBy('criadoEm','desc').onSnapshot(snap=>{
-    cards=snap.docs.map(d=>({id:d.id,...d.data()}));renderCards();
+    cards=snap.docs.map(d=>({id:d.id,...d.data()}));renderCards();if(currentPage==='dashboard')renderDashboard();
   },err=>{console.error(err);toast('Erro ao carregar gift cards',true)});
 }
 
@@ -499,6 +557,63 @@ function renderCards(){
     }
     return '<div class="card-item" data-tipo="'+tl+'" data-id="'+c.id+'"><div class="card-info"><div class="desc">'+esc(c.desc)+'</div><div class="meta">'+(c.code?'<span class="code-tag">'+esc(c.code)+'</span>':'')+'<span class="valor-display" style="cursor:pointer" onclick="editValor(\''+c.id+'\')">'+vl+' &#9998;</span><span class="cat-display" style="cursor:pointer" onclick="editCategoria(\''+c.id+'\')">'+(c.categoria?'<span class="cliente-tag">'+esc(c.categoria)+'</span>':'<span style="color:var(--text-muted);font-size:0.75rem">+ cat</span>')+' &#9998;</span></div></div><span class="tipo-badge '+tl+'">'+tl+'</span><div class="card-actions">'+act+'</div></div>';
   }).join('');
+}
+
+// ============================================================
+// DASHBOARD
+// ============================================================
+function renderDashboard(){
+  const ativos=cards.filter(c=>!c.usado), usados=cards.filter(c=>c.usado);
+  const totalVal=cards.reduce((s,c)=>s+(c.valor||0),0);
+  const ativoVal=ativos.reduce((s,c)=>s+(c.valor||0),0);
+  const usadoVal=usados.reduce((s,c)=>s+(c.valor||0),0);
+  const totalCli=clientes.length;
+
+  // Summary cards
+  dashCardsEl.innerHTML=
+    '<div class="dash-card"><div class="dash-label">Total Licencas</div><div class="dash-value">'+cards.length+'</div><div class="dash-sub">R$ '+fmtV(totalVal)+'</div><div class="dash-icon">&#127915;</div></div>'+
+    '<div class="dash-card"><div class="dash-label">Ativas</div><div class="dash-value" style="color:var(--accent)">'+ativos.length+'</div><div class="dash-sub">R$ '+fmtV(ativoVal)+'</div><div class="dash-icon">&#9989;</div></div>'+
+    '<div class="dash-card"><div class="dash-label">Usadas</div><div class="dash-value" style="color:var(--usado)">'+usados.length+'</div><div class="dash-sub">R$ '+fmtV(usadoVal)+'</div><div class="dash-icon">&#128230;</div></div>'+
+    '<div class="dash-card"><div class="dash-label">Clientes</div><div class="dash-value" style="color:var(--trimestral)">'+totalCli+'</div><div class="dash-sub">cadastrados</div><div class="dash-icon">&#128101;</div></div>';
+
+  // By Tipo
+  const tipos=['mensal','trimestral','anual'];
+  const tipoColors={'mensal':'var(--mensal)','trimestral':'var(--trimestral)','anual':'var(--anual)'};
+  const maxTipo=Math.max(1,...tipos.map(t=>cards.filter(c=>c.tipo===t).length));
+  dashByTipo.innerHTML=tipos.map(t=>{
+    const total=cards.filter(c=>c.tipo===t).length;
+    const ativo=cards.filter(c=>c.tipo===t&&!c.usado).length;
+    const pct=Math.round(total/maxTipo*100);
+    return '<div class="dash-bar-row"><span class="bar-label" style="text-transform:capitalize">'+t+'</span><div class="bar-track"><div class="bar-fill" style="width:'+pct+'%;background:'+tipoColors[t]+'"></div></div><span class="bar-count">'+ativo+'/'+total+'</span></div>';
+  }).join('')||'<div style="color:var(--text-muted);font-size:0.82rem">Sem dados</div>';
+
+  // By Categoria
+  const catMap={};
+  cards.forEach(c=>{const k=c.categoria||'Sem categoria';if(!catMap[k])catMap[k]={total:0,ativo:0};catMap[k].total++;if(!c.usado)catMap[k].ativo++});
+  const catEntries=Object.entries(catMap).sort((a,b)=>b[1].total-a[1].total);
+  const maxCat=Math.max(1,...catEntries.map(e=>e[1].total));
+  const catColors=['var(--accent)','var(--mensal)','var(--trimestral)','var(--anual)','var(--danger)','#f39c12','#1abc9c','#e84393'];
+  dashByCat.innerHTML=catEntries.length?catEntries.map((e,i)=>{
+    const pct=Math.round(e[1].total/maxCat*100);
+    return '<div class="dash-bar-row"><span class="bar-label">'+esc(e[0])+'</span><div class="bar-track"><div class="bar-fill" style="width:'+pct+'%;background:'+catColors[i%catColors.length]+'"></div></div><span class="bar-count">'+e[1].ativo+'/'+e[1].total+'</span></div>';
+  }).join(''):'<div style="color:var(--text-muted);font-size:0.82rem">Sem dados</div>';
+
+  // Top clientes
+  const cliMap={};
+  usados.forEach(c=>{if(c.clienteNome){if(!cliMap[c.clienteNome])cliMap[c.clienteNome]={count:0,valor:0};cliMap[c.clienteNome].count++;cliMap[c.clienteNome].valor+=(c.valor||0)}});
+  const cliEntries=Object.entries(cliMap).sort((a,b)=>b[1].count-a[1].count).slice(0,8);
+  const maxCli=Math.max(1,...cliEntries.map(e=>e[1].count));
+  dashTopCli.innerHTML=cliEntries.length?cliEntries.map((e,i)=>{
+    const pct=Math.round(e[1].count/maxCli*100);
+    return '<div class="dash-bar-row"><span class="bar-label">'+esc(e[0])+'</span><div class="bar-track"><div class="bar-fill" style="width:'+pct+'%;background:var(--accent)"></div></div><span class="bar-count">'+e[1].count+' (R$ '+fmtV(e[1].valor)+')</span></div>';
+  }).join(''):'<div style="color:var(--text-muted);font-size:0.82rem">Nenhuma venda ainda</div>';
+
+  // Recent used
+  const recent=usados.filter(c=>c.dataUso).sort((a,b)=>(b.dataUso||'').localeCompare(a.dataUso||'')).slice(0,10);
+  dashRecent.innerHTML=recent.length?recent.map(c=>{
+    const d=c.dataUso?new Date(c.dataUso+'T12:00:00').toLocaleDateString('pt-BR'):'';
+    return '<li><span class="r-desc">'+esc(c.desc)+(c.clienteNome?' &mdash; '+esc(c.clienteNome):'')+'</span><span class="r-meta">'+d+(c.valor!=null?' &middot; R$ '+fmtV(c.valor):'')+'</span></li>';
+  }).join(''):'<li style="color:var(--text-muted)">Nenhum uso recente</li>';
 }
 
 // ============================================================
