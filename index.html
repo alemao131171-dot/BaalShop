@@ -310,7 +310,10 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
   <!-- PAGE: PENDENTES -->
   <div class="page" id="pagePendentes" style="display:none">
     <div class="content">
-      <h2 class="page-title">Clientes Pendentes de Ativacao</h2>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem;flex-wrap:wrap;gap:0.5rem">
+        <h2 class="page-title" style="margin-bottom:0">Clientes Pendentes de Ativacao</h2>
+        <button class="btn-add" id="btnTelegram" style="background:#0088cc;font-size:0.8rem;padding:0.5rem 1rem">&#9993; Enviar Alerta Telegram</button>
+      </div>
       <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:1.25rem">Clientes cuja ultima licenca venceu e nao possuem nenhuma licenca ativa posterior.</p>
       <div class="search-bar">
         <input type="text" id="pendSearch" placeholder="Buscar cliente pendente...">
@@ -345,6 +348,20 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
         <button class="btn-add" id="btnCreateUser">+ Criar Usuario</button>
       </div>
       <div class="user-list" id="userList"></div>
+
+      <div style="border-top:1px solid var(--border);margin-top:2rem;padding-top:1.75rem">
+        <h2 class="page-title">Configuracao Telegram</h2>
+        <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.75rem">Configure o bot para receber alertas de licencas vencidas. Crie um bot no <a href="https://t.me/BotFather" target="_blank" style="color:var(--accent)">@BotFather</a> e obtenha o token e chat_id.</p>
+        <div class="add-bar" style="flex-direction:column">
+          <input type="text" id="tgToken" placeholder="Token do Bot (ex: 123456:ABC-DEF...)" autocomplete="off">
+          <input type="text" id="tgChatId" placeholder="Chat ID (ex: 123456789)" autocomplete="off">
+          <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+            <button class="btn-add" id="btnSaveTg">Salvar Config</button>
+            <button class="btn-add" id="btnTestTg" style="background:var(--surface-2);color:var(--text);border:1px solid var(--border)">Testar Envio</button>
+          </div>
+          <span id="tgStatus" style="font-size:0.82rem;color:var(--text-muted)"></span>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -386,10 +403,13 @@ const cliSearch = $('cliSearch'), clienteListEl = $('clienteList');
 const catNome = $('catNome'), btnAddCat = $('btnAddCat'), catListEl = $('catList');
 const newUserEmail = $('newUserEmail'), newUserPass = $('newUserPass'), newUserRole = $('newUserRole');
 const btnCreateUser = $('btnCreateUser'), userListEl = $('userList');
+const tgToken = $('tgToken'), tgChatId = $('tgChatId'), btnSaveTg = $('btnSaveTg'), btnTestTg = $('btnTestTg'), tgStatus = $('tgStatus');
+const btnTelegram = $('btnTelegram');
 
 let cards=[], users=[], clientes=[], categorias=[], currentUser=null, currentUserDoc=null;
 let activeTab='todos', searchQuery='', cliSearchQuery='', pendSearchQuery='', currentPage='dashboard';
 let unsubCards=null, unsubUsers=null, unsubClientes=null, unsubCats=null;
+let tgConfig={token:'',chatId:''};
 
 function toast(msg,isErr){toastEl.textContent=msg;toastEl.className='toast show'+(isErr?' error':'');setTimeout(()=>toastEl.className='toast',2500)}
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
@@ -410,6 +430,7 @@ auth.onAuthStateChanged(async user=>{
     showScreen('app');
     subscribeCards(); subscribeClientes(); subscribeCategorias();
     if(currentUserDoc.role==='admin') subscribeUsers();
+    loadTgConfig();
   }else{
     currentUser=null;currentUserDoc=null;
     if(unsubCards){unsubCards();unsubCards=null}
@@ -885,6 +906,123 @@ window.removeUser=async function(uid){
   if(!confirm('Remover este usuario?'))return;
   try{await db.collection('users').doc(uid).delete();toast('Registro removido')}catch(e){toast('Erro ao remover',true)}
 };
+
+// ============================================================
+// TELEGRAM
+// ============================================================
+async function loadTgConfig(){
+  try{
+    const doc=await db.collection('config').doc('telegram').get();
+    if(doc.exists){tgConfig=doc.data();tgToken.value=tgConfig.token||'';tgChatId.value=tgConfig.chatId||''}
+    // Auto-alert 1x por dia
+    autoTelegramAlert();
+  }catch(e){console.error('Erro ao carregar config Telegram:',e)}
+}
+
+btnSaveTg.addEventListener('click',async()=>{
+  const token=tgToken.value.trim(),chatId=tgChatId.value.trim();
+  if(!token||!chatId){toast('Preencha token e chat ID',true);return}
+  try{
+    await db.collection('config').doc('telegram').set({token,chatId});
+    tgConfig={token,chatId};
+    toast('Configuracao Telegram salva!');tgStatus.textContent='Salvo!';
+  }catch(e){toast('Erro ao salvar',true)}
+});
+
+btnTestTg.addEventListener('click',async()=>{
+  const token=tgToken.value.trim(),chatId=tgChatId.value.trim();
+  if(!token||!chatId){toast('Preencha token e chat ID',true);return}
+  tgStatus.textContent='Enviando teste...';
+  const ok=await sendTelegram(token,chatId,'✅ *Teste BaalShop Gift Cards*\n\nConexao com Telegram funcionando\\!');
+  tgStatus.textContent=ok?'Teste enviado com sucesso!':'Falha no envio. Verifique token e chat ID.';
+});
+
+async function sendTelegram(token,chatId,text){
+  try{
+    const r=await fetch('https://api.telegram.org/bot'+token+'/sendMessage',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({chat_id:chatId,text:text,parse_mode:'MarkdownV2'})
+    });
+    const d=await r.json();return d.ok;
+  }catch(e){console.error('Telegram error:',e);return false}
+}
+
+function escTg(s){return s.replace(/([_*\[\]()~`>#+\-=|{}.!])/g,'\\$1')}
+
+function buildAlertMessage(){
+  const hoje=new Date();
+  const usados=cards.filter(c=>c.usado&&c.clienteId&&c.dataUso);
+  const porCli={};
+  usados.forEach(c=>{if(!porCli[c.clienteId])porCli[c.clienteId]=[];porCli[c.clienteId].push(c)});
+
+  const vencidos=[],aVencer=[];
+  Object.entries(porCli).forEach(([cliId,arr])=>{
+    arr.sort((a,b)=>(calcVenc(b.dataUso,b.tipo)||0)-(calcVenc(a.dataUso,a.tipo)||0));
+    const ultimo=arr[0];
+    const venc=calcVenc(ultimo.dataUso,ultimo.tipo);
+    if(!venc)return;
+    const diff=Math.ceil((venc-hoje)/(1000*60*60*24));
+    const info={nome:ultimo.clienteNome||'Sem nome',desc:ultimo.desc,tipo:ultimo.tipo,cat:ultimo.categoria||'',vencStr:venc.toLocaleDateString('pt-BR'),dias:Math.abs(diff)};
+    if(diff<0) vencidos.push(info);
+    else if(diff<=7) aVencer.push(info);
+  });
+
+  if(!vencidos.length&&!aVencer.length) return null;
+
+  let msg='🔔 *Alerta Gift Cards \\- BaalShop*\n\n';
+  msg+='📅 '+escTg(hoje.toLocaleDateString('pt-BR'))+'\n\n';
+
+  if(vencidos.length){
+    msg+='🔴 *LICENCAS VENCIDAS \\('+vencidos.length+'\\)*\n';
+    vencidos.forEach(v=>{
+      msg+='• '+escTg(v.nome)+' \\- '+escTg(v.desc)+' \\('+escTg(v.tipo)+'\\)\n';
+      msg+='  Venceu: '+escTg(v.vencStr)+' \\('+v.dias+' dias\\)\n';
+    });
+    msg+='\n';
+  }
+
+  if(aVencer.length){
+    msg+='🟡 *A VENCER EM 7 DIAS \\('+aVencer.length+'\\)*\n';
+    aVencer.forEach(v=>{
+      msg+='• '+escTg(v.nome)+' \\- '+escTg(v.desc)+' \\('+escTg(v.tipo)+'\\)\n';
+      msg+='  Vence: '+escTg(v.vencStr)+' \\('+v.dias+' dias\\)\n';
+    });
+  }
+
+  msg+='\n📊 Total: '+cards.length+' licencas \\| '+cards.filter(c=>!c.usado).length+' ativas \\| '+cards.filter(c=>c.usado).length+' usadas';
+  return msg;
+}
+
+// Botao manual
+btnTelegram.addEventListener('click',async()=>{
+  if(!tgConfig.token||!tgConfig.chatId){toast('Configure o Telegram primeiro em Usuarios',true);return}
+  btnTelegram.disabled=true;btnTelegram.textContent='Enviando...';
+  const msg=buildAlertMessage();
+  if(!msg){toast('Nenhum cliente pendente ou a vencer para alertar');btnTelegram.disabled=false;btnTelegram.innerHTML='&#9993; Enviar Alerta Telegram';return}
+  const ok=await sendTelegram(tgConfig.token,tgConfig.chatId,msg);
+  toast(ok?'Alerta enviado no Telegram!':'Falha ao enviar. Verifique config.',!ok);
+  btnTelegram.disabled=false;btnTelegram.innerHTML='&#9993; Enviar Alerta Telegram';
+});
+
+// Auto 1x por dia
+async function autoTelegramAlert(){
+  if(!tgConfig.token||!tgConfig.chatId)return;
+  const key='tg_last_alert';
+  const hoje=new Date().toISOString().slice(0,10);
+  try{
+    const doc=await db.collection('config').doc('telegram_log').get();
+    if(doc.exists&&doc.data().lastAlert===hoje)return;
+  }catch(e){}
+  // Esperar cards carregar (pode levar um instante)
+  setTimeout(async()=>{
+    const msg=buildAlertMessage();
+    if(!msg)return;
+    const ok=await sendTelegram(tgConfig.token,tgConfig.chatId,msg);
+    if(ok){
+      try{await db.collection('config').doc('telegram_log').set({lastAlert:hoje})}catch(e){}
+    }
+  },3000);
+}
 </script>
 </body>
 </html>
