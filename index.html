@@ -204,7 +204,7 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
       <div class="add-bar" style="flex-direction:column">
         <input type="text" id="cliNome" placeholder="Nome do cliente" autocomplete="off">
         <input type="text" id="cliLogin" placeholder="Login (e-mail ou telefone)" autocomplete="off">
-        <input type="password" id="cliSenha" placeholder="Senha do cliente" autocomplete="off">
+        <input type="text" id="cliSenha" placeholder="Senha do cliente" autocomplete="off">
         <button class="btn-add" id="btnAddCliente">+ Cadastrar Cliente</button>
       </div>
       <div class="search-bar" style="margin-top:1rem">
@@ -488,7 +488,7 @@ function renderClientes(){
   if(!list.length){clienteListEl.innerHTML='<div class="empty">Nenhum cliente cadastrado</div>';return}
   clienteListEl.innerHTML=list.map(c=>{
     const dt=c.criadoEm?c.criadoEm.toDate().toLocaleDateString('pt-BR'):'';
-    return '<div class="cliente-item"><div><div class="cli-name">'+esc(c.nome)+'</div><div class="cli-detail">'+(c.login?esc(c.login)+' &middot; ':'')+dt+'</div></div><button class="btn-remove-user" onclick="removeCliente(\''+c.id+'\')">&#10005;</button></div>';
+    return '<div class="cliente-item"><div><div class="cli-name">'+esc(c.nome)+'</div><div class="cli-detail">'+(c.login?esc(c.login)+' &middot; ':'')+(c.senha?'Senha: '+esc(c.senha)+' &middot; ':'')+dt+'</div></div><button class="btn-remove-user" onclick="removeCliente(\''+c.id+'\')">&#10005;</button></div>';
   }).join('');
 }
 
