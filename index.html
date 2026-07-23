@@ -83,6 +83,14 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
 .btn-delete:hover{background:rgba(255,107,107,0.1);border-color:var(--danger)}
 .used-date{font-size:0.78rem;color:var(--text-muted);white-space:nowrap}
 .cliente-tag{font-size:0.75rem;color:var(--accent);background:rgba(162,155,254,0.1);padding:1px 6px;border-radius:4px}
+.venc-tag{font-size:0.72rem;padding:1px 6px;border-radius:4px;font-weight:500}
+.venc-tag.ok{color:var(--trimestral);background:rgba(0,184,148,0.1)}
+.venc-tag.warn{color:#f39c12;background:rgba(243,156,18,0.1)}
+.venc-tag.expired{color:var(--danger);background:rgba(255,107,107,0.1)}
+.pend-item{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:0.85rem 1rem;border-left:3px solid var(--danger)}
+.pend-item .pend-name{font-weight:600;font-size:0.92rem;margin-bottom:0.3rem}
+.pend-item .pend-detail{font-size:0.78rem;color:var(--text-muted);line-height:1.5}
+.pend-item .pend-detail span{display:inline-block;margin-right:0.75rem}
 .empty{text-align:center;padding:3rem 1rem;color:var(--text-muted);font-size:0.9rem}
 .empty svg{margin-bottom:0.75rem;opacity:0.3}
 .user-list,.cliente-list{display:flex;flex-direction:column;gap:0.5rem;margin-top:1rem}
@@ -169,6 +177,7 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
         <button class="nav-link" data-page="list">Lista</button>
         <button class="nav-link" data-page="cadastro">Cadastro</button>
         <button class="nav-link" data-page="clientes">Clientes</button>
+        <button class="nav-link" data-page="pendentes">Pendentes</button>
         <button class="nav-link" data-page="categorias">Categorias</button>
         <button class="nav-link" data-page="usuarios" id="navUsuarios" style="display:none">Usuarios</button>
       </div>
@@ -274,6 +283,18 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
     </div>
   </div>
 
+  <!-- PAGE: PENDENTES -->
+  <div class="page" id="pagePendentes" style="display:none">
+    <div class="content">
+      <h2 class="page-title">Clientes Pendentes de Ativacao</h2>
+      <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:1.25rem">Clientes cuja ultima licenca venceu e nao possuem nenhuma licenca ativa posterior.</p>
+      <div class="search-bar">
+        <input type="text" id="pendSearch" placeholder="Buscar cliente pendente...">
+      </div>
+      <div class="card-list" id="pendList"></div>
+    </div>
+  </div>
+
   <!-- PAGE: CATEGORIAS -->
   <div class="page" id="pageCategorias" style="display:none">
     <div class="content">
@@ -329,9 +350,10 @@ const btnLogin = $('btnLogin'), linkReset = $('linkReset'), btnLogout = $('btnLo
 const navUser = $('navUser'), navUsuarios = $('navUsuarios');
 const pageList = $('pageList'), pageCadastro = $('pageCadastro');
 const pageClientes = $('pageClientes'), pageCategorias = $('pageCategorias'), pageUsuarios = $('pageUsuarios');
-const pageDashboard = $('pageDashboard');
+const pageDashboard = $('pageDashboard'), pagePendentes = $('pagePendentes');
 const dashCardsEl = $('dashCards'), dashByTipo = $('dashByTipo'), dashByCat = $('dashByCat');
 const dashTopCli = $('dashTopCli'), dashRecent = $('dashRecent');
+const pendListEl = $('pendList'), pendSearch = $('pendSearch');
 const statsEl = $('stats'), tabsEl = $('tabs'), cardListEl = $('cardList'), searchInput = $('searchInput');
 const addBar = $('addBar'), btnAdd = $('btnAdd'), addCategoria = $('addCategoria');
 const batchInput = $('batchInput'), batchValor = $('batchValor'), batchCategoria = $('batchCategoria'), btnBatch = $('btnBatch'), batchStatus = $('batchStatus');
@@ -342,12 +364,15 @@ const newUserEmail = $('newUserEmail'), newUserPass = $('newUserPass'), newUserR
 const btnCreateUser = $('btnCreateUser'), userListEl = $('userList');
 
 let cards=[], users=[], clientes=[], categorias=[], currentUser=null, currentUserDoc=null;
-let activeTab='todos', searchQuery='', cliSearchQuery='', currentPage='dashboard';
+let activeTab='todos', searchQuery='', cliSearchQuery='', pendSearchQuery='', currentPage='dashboard';
 let unsubCards=null, unsubUsers=null, unsubClientes=null, unsubCats=null;
 
 function toast(msg,isErr){toastEl.textContent=msg;toastEl.className='toast show'+(isErr?' error':'');setTimeout(()=>toastEl.className='toast',2500)}
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 function fmtV(v){return v.toLocaleString('pt-BR',{minimumFractionDigits:2})}
+function tipoDias(tipo){return tipo==='anual'?365:tipo==='trimestral'?90:30}
+function calcVenc(dataUso,tipo){if(!dataUso)return null;const d=new Date(dataUso+'T12:00:00');d.setDate(d.getDate()+tipoDias(tipo));return d}
+function vencTag(dataUso,tipo){const v=calcVenc(dataUso,tipo);if(!v)return'';const hoje=new Date();const diff=Math.ceil((v-hoje)/(1000*60*60*24));const dtStr=v.toLocaleDateString('pt-BR');if(diff<0)return'<span class="venc-tag expired">Vencido '+dtStr+'</span>';if(diff<=7)return'<span class="venc-tag warn">Vence '+dtStr+'</span>';return'<span class="venc-tag ok">Vence '+dtStr+'</span>'}
 function showError(el,msg){el.textContent=msg;el.style.display='block'}
 function hideError(el){el.style.display='none'}
 
@@ -410,9 +435,11 @@ function switchPage(page){
   pageList.style.display=page==='list'?'':'none';
   pageCadastro.style.display=page==='cadastro'?'':'none';
   pageClientes.style.display=page==='clientes'?'':'none';
+  pagePendentes.style.display=page==='pendentes'?'':'none';
   pageCategorias.style.display=page==='categorias'?'':'none';
   pageUsuarios.style.display=page==='usuarios'?'':'none';
   if(page==='dashboard') renderDashboard();
+  if(page==='pendentes') renderPendentes();
 }
 
 // ============================================================
@@ -551,7 +578,8 @@ function renderCards(){
     if(c.usado){
       const d=c.dataUso?new Date(c.dataUso+'T12:00:00').toLocaleDateString('pt-BR'):'';
       const cli=c.clienteNome?'<span class="cliente-tag">'+esc(c.clienteNome)+'</span>':'';
-      act='<span class="used-date">'+d+'</span>'+cli+'<button class="btn-delete" onclick="desfazerUso(\''+c.id+'\')">&#8617;</button><button class="btn-delete" onclick="excluir(\''+c.id+'\')">&#10005;</button>';
+      const vt=vencTag(c.dataUso,c.tipo);
+      act='<span class="used-date">'+d+'</span>'+vt+cli+'<button class="btn-delete" onclick="desfazerUso(\''+c.id+'\')">&#8617;</button><button class="btn-delete" onclick="excluir(\''+c.id+'\')">&#10005;</button>';
     }else{
       act='<select class="cli-select">'+cliOpts+'</select><input type="date"><button class="btn-use" onclick="marcarUsado(\''+c.id+'\')">Usar</button><button class="btn-delete" onclick="excluir(\''+c.id+'\')">&#10005;</button>';
     }
@@ -569,12 +597,21 @@ function renderDashboard(){
   const usadoVal=usados.reduce((s,c)=>s+(c.valor||0),0);
   const totalCli=clientes.length;
 
+  // Count pendentes
+  const hoje=new Date();
+  const usadosComCli=usados.filter(c=>c.clienteId&&c.dataUso);
+  const porCli={};
+  usadosComCli.forEach(c=>{if(!porCli[c.clienteId])porCli[c.clienteId]=[];porCli[c.clienteId].push(c)});
+  let pendCount=0;
+  Object.values(porCli).forEach(arr=>{arr.sort((a,b)=>(calcVenc(b.dataUso,b.tipo)||0)-(calcVenc(a.dataUso,a.tipo)||0));const v=calcVenc(arr[0].dataUso,arr[0].tipo);if(v&&v<hoje)pendCount++});
+
   // Summary cards
   dashCardsEl.innerHTML=
     '<div class="dash-card"><div class="dash-label">Total Licencas</div><div class="dash-value">'+cards.length+'</div><div class="dash-sub">R$ '+fmtV(totalVal)+'</div><div class="dash-icon">&#127915;</div></div>'+
     '<div class="dash-card"><div class="dash-label">Ativas</div><div class="dash-value" style="color:var(--accent)">'+ativos.length+'</div><div class="dash-sub">R$ '+fmtV(ativoVal)+'</div><div class="dash-icon">&#9989;</div></div>'+
     '<div class="dash-card"><div class="dash-label">Usadas</div><div class="dash-value" style="color:var(--usado)">'+usados.length+'</div><div class="dash-sub">R$ '+fmtV(usadoVal)+'</div><div class="dash-icon">&#128230;</div></div>'+
-    '<div class="dash-card"><div class="dash-label">Clientes</div><div class="dash-value" style="color:var(--trimestral)">'+totalCli+'</div><div class="dash-sub">cadastrados</div><div class="dash-icon">&#128101;</div></div>';
+    '<div class="dash-card"><div class="dash-label">Clientes</div><div class="dash-value" style="color:var(--trimestral)">'+totalCli+'</div><div class="dash-sub">cadastrados</div><div class="dash-icon">&#128101;</div></div>'+
+    '<div class="dash-card"><div class="dash-label">Pendentes</div><div class="dash-value" style="color:var(--danger)">'+pendCount+'</div><div class="dash-sub">licencas vencidas</div><div class="dash-icon">&#9888;</div></div>';
 
   // By Tipo
   const tipos=['mensal','trimestral','anual'];
@@ -612,8 +649,75 @@ function renderDashboard(){
   const recent=usados.filter(c=>c.dataUso).sort((a,b)=>(b.dataUso||'').localeCompare(a.dataUso||'')).slice(0,10);
   dashRecent.innerHTML=recent.length?recent.map(c=>{
     const d=c.dataUso?new Date(c.dataUso+'T12:00:00').toLocaleDateString('pt-BR'):'';
-    return '<li><span class="r-desc">'+esc(c.desc)+(c.clienteNome?' &mdash; '+esc(c.clienteNome):'')+'</span><span class="r-meta">'+d+(c.valor!=null?' &middot; R$ '+fmtV(c.valor):'')+'</span></li>';
+    const vt=vencTag(c.dataUso,c.tipo);
+    return '<li><span class="r-desc">'+esc(c.desc)+(c.clienteNome?' &mdash; '+esc(c.clienteNome):'')+'</span><span class="r-meta">'+d+' '+vt+(c.valor!=null?' &middot; R$ '+fmtV(c.valor):'')+'</span></li>';
   }).join(''):'<li style="color:var(--text-muted)">Nenhum uso recente</li>';
+}
+
+// ============================================================
+// PENDENTES (clientes com licenca vencida sem renovacao)
+// ============================================================
+pendSearch.addEventListener('input',e=>{pendSearchQuery=e.target.value.toLowerCase().trim();renderPendentes()});
+
+function renderPendentes(){
+  const hoje=new Date();
+  // Agrupar cards usados por clienteId
+  const usados=cards.filter(c=>c.usado&&c.clienteId&&c.dataUso);
+  const porCliente={};
+  usados.forEach(c=>{
+    if(!porCliente[c.clienteId]) porCliente[c.clienteId]=[];
+    porCliente[c.clienteId].push(c);
+  });
+
+  const pendentes=[];
+  Object.entries(porCliente).forEach(([cliId,cliCards])=>{
+    // Ordenar por vencimento desc
+    cliCards.sort((a,b)=>{
+      const va=calcVenc(a.dataUso,a.tipo);
+      const vb=calcVenc(b.dataUso,b.tipo);
+      return (vb||0)-(va||0);
+    });
+    const ultimo=cliCards[0];
+    const venc=calcVenc(ultimo.dataUso,ultimo.tipo);
+    if(!venc) return;
+    // Verificar se tem alguma licenca ativa (nao usada) vinculada depois do vencimento
+    // Como licencas ativas nao tem cliente, considerar apenas se a ultima venceu
+    if(venc<hoje){
+      const cli=clientes.find(c=>c.id===cliId);
+      pendentes.push({
+        clienteId:cliId,
+        clienteNome:ultimo.clienteNome||'(sem nome)',
+        clienteLogin:cli?cli.login:'',
+        clienteTel:cli?cli.login:'',
+        ultimaDesc:ultimo.desc,
+        ultimaTipo:ultimo.tipo,
+        ultimaCategoria:ultimo.categoria||'',
+        dataUso:ultimo.dataUso,
+        vencimento:venc,
+        diasVencido:Math.ceil((hoje-venc)/(1000*60*60*24)),
+        totalCompras:cliCards.length
+      });
+    }
+  });
+
+  // Ordenar por mais vencido primeiro
+  pendentes.sort((a,b)=>b.diasVencido-a.diasVencido);
+
+  let filtered=pendentes;
+  if(pendSearchQuery) filtered=filtered.filter(p=>p.clienteNome.toLowerCase().includes(pendSearchQuery)||(p.clienteLogin&&p.clienteLogin.toLowerCase().includes(pendSearchQuery))||p.ultimaDesc.toLowerCase().includes(pendSearchQuery));
+
+  if(!filtered.length){
+    pendListEl.innerHTML='<div class="empty"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg><div>Nenhum cliente pendente de ativacao!</div></div>';
+    return;
+  }
+
+  pendListEl.innerHTML=filtered.map(p=>{
+    const vencStr=p.vencimento.toLocaleDateString('pt-BR');
+    const usoStr=p.dataUso?new Date(p.dataUso+'T12:00:00').toLocaleDateString('pt-BR'):'';
+    return '<div class="pend-item"><div class="pend-name">'+esc(p.clienteNome)+(p.clienteLogin?' <span style="font-weight:400;font-size:0.78rem;color:var(--text-muted)">('+esc(p.clienteLogin)+')</span>':'')+'</div><div class="pend-detail"><span>Ultima: <strong>'+esc(p.ultimaDesc)+'</strong></span><span>Tipo: '+p.ultimaTipo+'</span>'+(p.ultimaCategoria?'<span>Cat: '+esc(p.ultimaCategoria)+'</span>':'')+'<span>Ativado: '+usoStr+'</span><span class="venc-tag expired">Vencido em '+vencStr+' ('+p.diasVencido+' dias)</span><span>Total compras: '+p.totalCompras+'</span></div></div>';
+  }).join('');
+
+  // Update nav badge
 }
 
 // ============================================================
