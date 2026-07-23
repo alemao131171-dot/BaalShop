@@ -144,6 +144,7 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
         <button class="nav-link active" data-page="list">Lista</button>
         <button class="nav-link" data-page="cadastro">Cadastro</button>
         <button class="nav-link" data-page="clientes">Clientes</button>
+        <button class="nav-link" data-page="categorias">Categorias</button>
         <button class="nav-link" data-page="usuarios" id="navUsuarios" style="display:none">Usuarios</button>
       </div>
       <span class="navbar-user" id="navUser"></span>
@@ -182,6 +183,9 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
           <option value="trimestral">Trimestral</option>
           <option value="anual">Anual</option>
         </select>
+        <select name="categoria" id="addCategoria" style="width:100%!important">
+          <option value="">-- Categoria --</option>
+        </select>
         <button class="btn-add" id="btnAdd">+ Adicionar Gift Card</button>
       </div>
       <div style="border-top:1px solid var(--border);margin-top:2rem;padding-top:1.75rem">
@@ -190,6 +194,9 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
         <textarea id="batchInput" placeholder="UniTV-Anual&#9;9245375452192143&#10;UniTV-Mensal&#9;1721849272991814" style="width:100%;min-height:140px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:monospace;font-size:0.82rem;padding:0.75rem;outline:none;resize:vertical;line-height:1.6"></textarea>
         <div style="display:flex;gap:0.75rem;margin-top:0.75rem;align-items:center;flex-wrap:wrap">
           <input type="number" id="batchValor" placeholder="Valor (R$) opcional" step="0.01" min="0" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:'Inter',sans-serif;font-size:0.85rem;padding:0.6rem 0.75rem;outline:none;width:180px">
+          <select id="batchCategoria" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:'Inter',sans-serif;font-size:0.85rem;padding:0.6rem 0.75rem;outline:none;width:180px">
+            <option value="">-- Categoria --</option>
+          </select>
           <button class="btn-add" id="btnBatch">Importar Lote</button>
           <span id="batchStatus" style="font-size:0.82rem;color:var(--text-muted)"></span>
         </div>
@@ -211,6 +218,18 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
         <input type="text" id="cliSearch" placeholder="Buscar cliente...">
       </div>
       <div class="cliente-list" id="clienteList"></div>
+    </div>
+  </div>
+
+  <!-- PAGE: CATEGORIAS -->
+  <div class="page" id="pageCategorias" style="display:none">
+    <div class="content">
+      <h2 class="page-title">Cadastrar Categoria</h2>
+      <div class="add-bar" style="flex-direction:column">
+        <input type="text" id="catNome" placeholder="Nome da categoria" autocomplete="off">
+        <button class="btn-add" id="btnAddCat">+ Cadastrar Categoria</button>
+      </div>
+      <div class="cliente-list" id="catList"></div>
     </div>
   </div>
 
@@ -256,18 +275,19 @@ const loginEmail = $('loginEmail'), loginPassword = $('loginPassword');
 const btnLogin = $('btnLogin'), linkReset = $('linkReset'), btnLogout = $('btnLogout');
 const navUser = $('navUser'), navUsuarios = $('navUsuarios');
 const pageList = $('pageList'), pageCadastro = $('pageCadastro');
-const pageClientes = $('pageClientes'), pageUsuarios = $('pageUsuarios');
+const pageClientes = $('pageClientes'), pageCategorias = $('pageCategorias'), pageUsuarios = $('pageUsuarios');
 const statsEl = $('stats'), tabsEl = $('tabs'), cardListEl = $('cardList'), searchInput = $('searchInput');
-const addBar = $('addBar'), btnAdd = $('btnAdd');
-const batchInput = $('batchInput'), batchValor = $('batchValor'), btnBatch = $('btnBatch'), batchStatus = $('batchStatus');
+const addBar = $('addBar'), btnAdd = $('btnAdd'), addCategoria = $('addCategoria');
+const batchInput = $('batchInput'), batchValor = $('batchValor'), batchCategoria = $('batchCategoria'), btnBatch = $('btnBatch'), batchStatus = $('batchStatus');
 const cliNome = $('cliNome'), cliLogin = $('cliLogin'), cliSenha = $('cliSenha'), btnAddCliente = $('btnAddCliente');
 const cliSearch = $('cliSearch'), clienteListEl = $('clienteList');
+const catNome = $('catNome'), btnAddCat = $('btnAddCat'), catListEl = $('catList');
 const newUserEmail = $('newUserEmail'), newUserPass = $('newUserPass'), newUserRole = $('newUserRole');
 const btnCreateUser = $('btnCreateUser'), userListEl = $('userList');
 
-let cards=[], users=[], clientes=[], currentUser=null, currentUserDoc=null;
+let cards=[], users=[], clientes=[], categorias=[], currentUser=null, currentUserDoc=null;
 let activeTab='todos', searchQuery='', cliSearchQuery='', currentPage='list';
-let unsubCards=null, unsubUsers=null, unsubClientes=null;
+let unsubCards=null, unsubUsers=null, unsubClientes=null, unsubCats=null;
 
 function toast(msg,isErr){toastEl.textContent=msg;toastEl.className='toast show'+(isErr?' error':'');setTimeout(()=>toastEl.className='toast',2500)}
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
@@ -283,14 +303,15 @@ auth.onAuthStateChanged(async user=>{
     navUser.textContent=user.email;
     navUsuarios.style.display=currentUserDoc.role==='admin'?'':'none';
     showScreen('app');
-    subscribeCards(); subscribeClientes();
+    subscribeCards(); subscribeClientes(); subscribeCategorias();
     if(currentUserDoc.role==='admin') subscribeUsers();
   }else{
     currentUser=null;currentUserDoc=null;
     if(unsubCards){unsubCards();unsubCards=null}
     if(unsubUsers){unsubUsers();unsubUsers=null}
     if(unsubClientes){unsubClientes();unsubClientes=null}
-    cards=[];users=[];clientes=[];
+    if(unsubCats){unsubCats();unsubCats=null}
+    cards=[];users=[];clientes=[];categorias=[];
     showScreen('login');
   }
   loadingOverlay.style.display='none';
@@ -332,6 +353,7 @@ function switchPage(page){
   pageList.style.display=page==='list'?'':'none';
   pageCadastro.style.display=page==='cadastro'?'':'none';
   pageClientes.style.display=page==='clientes'?'':'none';
+  pageCategorias.style.display=page==='categorias'?'':'none';
   pageUsuarios.style.display=page==='usuarios'?'':'none';
 }
 
@@ -350,9 +372,10 @@ btnAdd.addEventListener('click',async()=>{
   const code=addBar.querySelector('[name="code"]').value.trim();
   const valor=addBar.querySelector('[name="valor"]').value;
   const tipo=addBar.querySelector('[name="tipo"]').value;
+  const cat=addCategoria.value;
   if(!desc){addBar.querySelector('[name="desc"]').focus();return}
   try{
-    await db.collection('giftcards').add({desc,code,valor:valor?parseFloat(valor):null,tipo,usado:false,dataUso:null,clienteId:null,clienteNome:null,criadoEm:firebase.firestore.FieldValue.serverTimestamp(),criadoPor:currentUser.uid});
+    await db.collection('giftcards').add({desc,code,valor:valor?parseFloat(valor):null,tipo,categoria:cat||null,usado:false,dataUso:null,clienteId:null,clienteNome:null,criadoEm:firebase.firestore.FieldValue.serverTimestamp(),criadoPor:currentUser.uid});
     addBar.querySelector('[name="desc"]').value='';addBar.querySelector('[name="code"]').value='';addBar.querySelector('[name="valor"]').value='';
     toast('Gift card adicionado!');
   }catch(e){toast('Erro ao adicionar',true)}
@@ -363,6 +386,7 @@ addBar.addEventListener('keydown',e=>{if(e.key==='Enter')btnAdd.click()});
 btnBatch.addEventListener('click',async()=>{
   const raw=batchInput.value.trim();if(!raw){batchInput.focus();return}
   const valor=batchValor.value?parseFloat(batchValor.value):null;
+  const batchCat=batchCategoria.value||null;
   const lines=raw.split('\n').map(l=>l.trim()).filter(l=>l);if(!lines.length)return;
   btnBatch.disabled=true;batchStatus.textContent='Importando...';
   let ok=0,fail=0;
@@ -376,7 +400,7 @@ btnBatch.addEventListener('click',async()=>{
       else{const p2=line.split(/\s{2,}/);if(p2.length>=2){desc=p2[0].trim();code=p2.slice(1).join(' ').trim()}else{desc=line;code=''}}
       if(!desc){fail++;continue}
       const ref=db.collection('giftcards').doc();
-      batch.set(ref,{desc,code,valor,tipo:detectTipo(desc),usado:false,dataUso:null,clienteId:null,clienteNome:null,criadoEm:firebase.firestore.FieldValue.serverTimestamp(),criadoPor:currentUser.uid});ok++;
+      batch.set(ref,{desc,code,valor,tipo:detectTipo(desc),categoria:batchCat,usado:false,dataUso:null,clienteId:null,clienteNome:null,criadoEm:firebase.firestore.FieldValue.serverTimestamp(),criadoPor:currentUser.uid});ok++;
     }
     try{await batch.commit()}catch(e){fail+=chunk.length;ok-=chunk.length}
     batchStatus.textContent='Importando... '+Math.min(i+bsz,lines.length)+'/'+lines.length;
@@ -425,6 +449,21 @@ window.editValor=function(id){
   inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();inp.blur()}if(e.key==='Escape')renderCards()});
 };
 
+// EDIT CATEGORIA
+window.editCategoria=function(id){
+  const row=document.querySelector('.card-item[data-id="'+id+'"]');
+  const card=cards.find(c=>c.id===id);if(!row||!card)return;
+  const span=row.querySelector('.cat-display');if(!span)return;
+  const opts=categorias.map(ct=>'<option value="'+esc(ct.nome)+'"'+(card.categoria===ct.nome?' selected':'')+'>'+esc(ct.nome)+'</option>').join('');
+  span.innerHTML='<select class="inline-edit" style="width:auto"><option value="">-- Nenhuma --</option>'+opts+'</select>';
+  const sel=span.querySelector('select');sel.focus();
+  sel.addEventListener('change',async function(){
+    const nv=sel.value||null;
+    try{await db.collection('giftcards').doc(id).update({categoria:nv});toast('Categoria atualizada')}catch(e){toast('Erro ao atualizar',true);renderCards()}
+  });
+  sel.addEventListener('blur',()=>setTimeout(renderCards,150));
+};
+
 // TABS
 tabsEl.addEventListener('click',e=>{const tab=e.target.closest('.tab');if(!tab)return;activeTab=tab.dataset.tab;tabsEl.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));tab.classList.add('active');renderCards()});
 searchInput.addEventListener('input',e=>{searchQuery=e.target.value.toLowerCase().trim();renderCards()});
@@ -440,7 +479,7 @@ function renderCards(){
   if(activeTab==='usados')filtered=cards.filter(c=>c.usado);
   else if(activeTab==='todos')filtered=cards.filter(c=>!c.usado);
   else filtered=cards.filter(c=>!c.usado&&c.tipo===activeTab);
-  if(searchQuery)filtered=filtered.filter(c=>c.desc.toLowerCase().includes(searchQuery)||(c.code&&c.code.toLowerCase().includes(searchQuery))||(c.clienteNome&&c.clienteNome.toLowerCase().includes(searchQuery)));
+  if(searchQuery)filtered=filtered.filter(c=>c.desc.toLowerCase().includes(searchQuery)||(c.code&&c.code.toLowerCase().includes(searchQuery))||(c.clienteNome&&c.clienteNome.toLowerCase().includes(searchQuery))||(c.categoria&&c.categoria.toLowerCase().includes(searchQuery)));
   if(!filtered.length){cardListEl.innerHTML='<div class="empty"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg><div>'+(activeTab==='usados'?'Nenhum gift card usado ainda':'Nenhum gift card nesta categoria')+'</div></div>';return}
 
   // Build cliente options
@@ -449,6 +488,7 @@ function renderCards(){
   cardListEl.innerHTML=filtered.map(c=>{
     const tl=c.usado?'usado':c.tipo;
     const vl=c.valor!=null?'R$ '+fmtV(c.valor):'sem valor';
+    const catLabel=c.categoria?c.categoria:'sem cat.';
     let act='';
     if(c.usado){
       const d=c.dataUso?new Date(c.dataUso+'T12:00:00').toLocaleDateString('pt-BR'):'';
@@ -457,7 +497,7 @@ function renderCards(){
     }else{
       act='<select class="cli-select">'+cliOpts+'</select><input type="date"><button class="btn-use" onclick="marcarUsado(\''+c.id+'\')">Usar</button><button class="btn-delete" onclick="excluir(\''+c.id+'\')">&#10005;</button>';
     }
-    return '<div class="card-item" data-tipo="'+tl+'" data-id="'+c.id+'"><div class="card-info"><div class="desc">'+esc(c.desc)+'</div><div class="meta">'+(c.code?'<span class="code-tag">'+esc(c.code)+'</span>':'')+'<span class="valor-display" style="cursor:pointer" onclick="editValor(\''+c.id+'\')">'+vl+' &#9998;</span></div></div><span class="tipo-badge '+tl+'">'+tl+'</span><div class="card-actions">'+act+'</div></div>';
+    return '<div class="card-item" data-tipo="'+tl+'" data-id="'+c.id+'"><div class="card-info"><div class="desc">'+esc(c.desc)+'</div><div class="meta">'+(c.code?'<span class="code-tag">'+esc(c.code)+'</span>':'')+'<span class="valor-display" style="cursor:pointer" onclick="editValor(\''+c.id+'\')">'+vl+' &#9998;</span><span class="cat-display" style="cursor:pointer" onclick="editCategoria(\''+c.id+'\')">'+(c.categoria?'<span class="cliente-tag">'+esc(c.categoria)+'</span>':'<span style="color:var(--text-muted);font-size:0.75rem">+ cat</span>')+' &#9998;</span></div></div><span class="tipo-badge '+tl+'">'+tl+'</span><div class="card-actions">'+act+'</div></div>';
   }).join('');
 }
 
@@ -495,6 +535,43 @@ function renderClientes(){
 window.removeCliente=async function(id){
   if(!confirm('Remover este cliente?'))return;
   try{await db.collection('clientes').doc(id).delete();toast('Cliente removido')}catch(e){toast('Erro ao remover',true)}
+};
+
+// ============================================================
+// FIRESTORE - CATEGORIAS
+// ============================================================
+function subscribeCategorias(){
+  unsubCats=db.collection('categorias').orderBy('nome').onSnapshot(snap=>{
+    categorias=snap.docs.map(d=>({id:d.id,...d.data()}));
+    renderCategorias(); updateCatSelects(); renderCards();
+  },err=>{console.error(err)});
+}
+
+function updateCatSelects(){
+  const opts='<option value="">-- Categoria --</option>'+categorias.map(c=>'<option value="'+esc(c.nome)+'">'+esc(c.nome)+'</option>').join('');
+  addCategoria.innerHTML=opts;
+  batchCategoria.innerHTML=opts;
+}
+
+btnAddCat.addEventListener('click',async()=>{
+  const nome=catNome.value.trim();
+  if(!nome){catNome.focus();return}
+  try{
+    await db.collection('categorias').add({nome,criadoEm:firebase.firestore.FieldValue.serverTimestamp()});
+    catNome.value='';toast('Categoria cadastrada!');
+  }catch(e){toast('Erro ao cadastrar',true)}
+});
+
+function renderCategorias(){
+  if(!categorias.length){catListEl.innerHTML='<div class="empty">Nenhuma categoria cadastrada</div>';return}
+  catListEl.innerHTML=categorias.map(c=>{
+    return '<div class="cliente-item"><div><div class="cli-name">'+esc(c.nome)+'</div></div><button class="btn-remove-user" onclick="removeCat(\''+c.id+'\')">&#10005;</button></div>';
+  }).join('');
+}
+
+window.removeCat=async function(id){
+  if(!confirm('Remover esta categoria?'))return;
+  try{await db.collection('categorias').doc(id).delete();toast('Categoria removida')}catch(e){toast('Erro ao remover',true)}
 };
 
 // ============================================================
