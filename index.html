@@ -15,10 +15,18 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
 .navbar h1{font-family:"Space Grotesk",sans-serif;font-size:1.25rem;font-weight:700;letter-spacing:-0.5px}
 .navbar-right{display:flex;align-items:center;gap:1rem}
 .navbar-user{font-size:0.82rem;color:var(--text-muted)}
-.nav-links{display:flex;gap:0.25rem;flex-wrap:wrap}
+.nav-links{display:flex;gap:0.25rem;flex-wrap:wrap;align-items:center}
 .nav-link{background:none;border:1px solid transparent;border-radius:var(--radius);color:var(--text-muted);font-family:"Inter",sans-serif;font-size:0.82rem;font-weight:500;padding:0.45rem 0.9rem;cursor:pointer;transition:all 0.2s}
 .nav-link:hover{color:var(--text);background:var(--surface-2)}
 .nav-link.active{color:var(--accent);border-color:var(--accent);background:rgba(162,155,254,0.08)}
+.nav-dropdown{position:relative}
+.nav-dropdown-btn{background:none;border:1px solid transparent;border-radius:var(--radius);color:var(--text-muted);font-family:"Inter",sans-serif;font-size:0.82rem;font-weight:500;padding:0.45rem 0.9rem;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;gap:4px}
+.nav-dropdown-btn:hover{color:var(--text);background:var(--surface-2)}
+.nav-dropdown-btn.has-active{color:var(--accent);border-color:var(--accent);background:rgba(162,155,254,0.08)}
+.nav-dropdown-btn::after{content:"";border-left:4px solid transparent;border-right:4px solid transparent;border-top:4px solid currentColor;margin-top:1px}
+.nav-dropdown-menu{display:none;position:absolute;top:100%;left:0;margin-top:4px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);min-width:160px;padding:4px;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,0.35)}
+.nav-dropdown.open .nav-dropdown-menu{display:block}
+.nav-dropdown-menu .nav-link{display:block;width:100%;text-align:left;border-radius:6px;padding:0.5rem 0.75rem}
 .btn-logout{background:none;border:1px solid var(--border);border-radius:var(--radius);color:var(--danger);font-family:"Inter",sans-serif;font-size:0.78rem;font-weight:500;padding:0.4rem 0.75rem;cursor:pointer;transition:all 0.2s}
 .btn-logout:hover{background:rgba(255,107,107,0.1);border-color:var(--danger)}
 .auth-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:1.5rem}
@@ -105,7 +113,8 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
 @keyframes spin{to{transform:rotate(360deg)}}
 /* ========== DASHBOARD ========== */
 .dash-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0.75rem;margin-bottom:1.5rem}
-.dash-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.25rem;position:relative;overflow:hidden}
+.dash-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.25rem;position:relative;overflow:hidden;cursor:pointer;transition:border-color 0.2s,transform 0.15s}
+.dash-card:hover{border-color:var(--accent);transform:translateY(-2px)}
 .dash-card .dash-label{font-size:0.78rem;color:var(--text-muted);font-weight:500;margin-bottom:0.35rem}
 .dash-card .dash-value{font-family:"Space Grotesk",sans-serif;font-size:1.75rem;font-weight:700;line-height:1.2}
 .dash-card .dash-sub{font-size:0.75rem;color:var(--text-muted);margin-top:0.25rem}
@@ -174,11 +183,26 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
     <div class="navbar-right">
       <div class="nav-links">
         <button class="nav-link active" data-page="dashboard">Dashboard</button>
-        <button class="nav-link" data-page="list">Lista</button>
-        <button class="nav-link" data-page="cadastro">Cadastro</button>
-        <button class="nav-link" data-page="clientes">Clientes</button>
-        <button class="nav-link" data-page="pendentes">Pendentes</button>
-        <button class="nav-link" data-page="categorias">Categorias</button>
+        <div class="nav-dropdown">
+          <button class="nav-dropdown-btn" data-group="produtos">Produtos</button>
+          <div class="nav-dropdown-menu">
+            <button class="nav-link" data-page="cadastro">Cadastro</button>
+            <button class="nav-link" data-page="categorias">Categorias</button>
+          </div>
+        </div>
+        <div class="nav-dropdown">
+          <button class="nav-dropdown-btn" data-group="pessoa">Pessoa</button>
+          <div class="nav-dropdown-menu">
+            <button class="nav-link" data-page="clientes">Clientes</button>
+          </div>
+        </div>
+        <div class="nav-dropdown">
+          <button class="nav-dropdown-btn" data-group="venda">Venda</button>
+          <div class="nav-dropdown-menu">
+            <button class="nav-link" data-page="list">Lista</button>
+            <button class="nav-link" data-page="pendentes">Pendentes</button>
+          </div>
+        </div>
         <button class="nav-link" data-page="usuarios" id="navUsuarios" style="display:none">Usuarios</button>
       </div>
       <span class="navbar-user" id="navUser"></span>
@@ -422,10 +446,36 @@ btnLogout.addEventListener('click',()=>auth.signOut());
 // SCREENS & PAGES
 function showScreen(name){screenLogin.classList.remove('active');screenApp.classList.remove('active');(name==='login'?screenLogin:screenApp).classList.add('active')}
 
-document.querySelectorAll('.nav-link').forEach(btn=>{
-  btn.addEventListener('click',()=>{
-    document.querySelectorAll('.nav-link').forEach(b=>b.classList.remove('active'));
-    btn.classList.add('active');switchPage(btn.dataset.page);
+// Dropdown toggle
+document.querySelectorAll('.nav-dropdown-btn').forEach(btn=>{
+  btn.addEventListener('click',e=>{
+    e.stopPropagation();
+    const dd=btn.parentElement;
+    const wasOpen=dd.classList.contains('open');
+    document.querySelectorAll('.nav-dropdown').forEach(d=>d.classList.remove('open'));
+    if(!wasOpen) dd.classList.add('open');
+  });
+});
+document.addEventListener('click',()=>document.querySelectorAll('.nav-dropdown').forEach(d=>d.classList.remove('open')));
+
+// Nav page links
+window.goToPage=function(page){
+  document.querySelectorAll('.nav-link').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.nav-dropdown-btn').forEach(b=>b.classList.remove('has-active'));
+  const target=document.querySelector('.nav-link[data-page="'+page+'"]');
+  if(target){
+    target.classList.add('active');
+    const dd=target.closest('.nav-dropdown');
+    if(dd) dd.querySelector('.nav-dropdown-btn').classList.add('has-active');
+  }
+  document.querySelectorAll('.nav-dropdown').forEach(d=>d.classList.remove('open'));
+  switchPage(page);
+}
+
+document.querySelectorAll('.nav-link[data-page]').forEach(btn=>{
+  btn.addEventListener('click',e=>{
+    e.stopPropagation();
+    goToPage(btn.dataset.page);
   });
 });
 
@@ -607,11 +657,11 @@ function renderDashboard(){
 
   // Summary cards
   dashCardsEl.innerHTML=
-    '<div class="dash-card"><div class="dash-label">Total Licencas</div><div class="dash-value">'+cards.length+'</div><div class="dash-sub">R$ '+fmtV(totalVal)+'</div><div class="dash-icon">&#127915;</div></div>'+
-    '<div class="dash-card"><div class="dash-label">Ativas</div><div class="dash-value" style="color:var(--accent)">'+ativos.length+'</div><div class="dash-sub">R$ '+fmtV(ativoVal)+'</div><div class="dash-icon">&#9989;</div></div>'+
-    '<div class="dash-card"><div class="dash-label">Usadas</div><div class="dash-value" style="color:var(--usado)">'+usados.length+'</div><div class="dash-sub">R$ '+fmtV(usadoVal)+'</div><div class="dash-icon">&#128230;</div></div>'+
-    '<div class="dash-card"><div class="dash-label">Clientes</div><div class="dash-value" style="color:var(--trimestral)">'+totalCli+'</div><div class="dash-sub">cadastrados</div><div class="dash-icon">&#128101;</div></div>'+
-    '<div class="dash-card"><div class="dash-label">Pendentes</div><div class="dash-value" style="color:var(--danger)">'+pendCount+'</div><div class="dash-sub">licencas vencidas</div><div class="dash-icon">&#9888;</div></div>';
+    '<div class="dash-card" onclick="goToPage(\'list\')"><div class="dash-label">Total Licencas</div><div class="dash-value">'+cards.length+'</div><div class="dash-sub">R$ '+fmtV(totalVal)+'</div><div class="dash-icon">&#127915;</div></div>'+
+    '<div class="dash-card" onclick="goToPage(\'list\')"><div class="dash-label">Ativas</div><div class="dash-value" style="color:var(--accent)">'+ativos.length+'</div><div class="dash-sub">R$ '+fmtV(ativoVal)+'</div><div class="dash-icon">&#9989;</div></div>'+
+    '<div class="dash-card" onclick="goToPage(\'list\');setTimeout(()=>{const t=document.querySelector(\'.tab[data-tab=usados]\');if(t)t.click()},50)"><div class="dash-label">Usadas</div><div class="dash-value" style="color:var(--usado)">'+usados.length+'</div><div class="dash-sub">R$ '+fmtV(usadoVal)+'</div><div class="dash-icon">&#128230;</div></div>'+
+    '<div class="dash-card" onclick="goToPage(\'clientes\')"><div class="dash-label">Clientes</div><div class="dash-value" style="color:var(--trimestral)">'+totalCli+'</div><div class="dash-sub">cadastrados</div><div class="dash-icon">&#128101;</div></div>'+
+    '<div class="dash-card" onclick="goToPage(\'pendentes\')"><div class="dash-label">Pendentes</div><div class="dash-value" style="color:var(--danger)">'+pendCount+'</div><div class="dash-sub">licencas vencidas</div><div class="dash-icon">&#9888;</div></div>';
 
   // By Tipo
   const tipos=['mensal','trimestral','anual'];
