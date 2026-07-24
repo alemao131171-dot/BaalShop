@@ -99,6 +99,15 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
 .pend-item .pend-name{font-weight:600;font-size:0.92rem;margin-bottom:0.3rem}
 .pend-item .pend-detail{font-size:0.78rem;color:var(--text-muted);line-height:1.5}
 .pend-item .pend-detail span{display:inline-block;margin-right:0.75rem}
+.consulta-table{width:100%;border-collapse:collapse;font-size:0.84rem}
+.consulta-table th{text-align:left;font-weight:600;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);padding:0.6rem 0.75rem;border-bottom:2px solid var(--border);white-space:nowrap}
+.consulta-table td{padding:0.65rem 0.75rem;border-bottom:1px solid var(--border);vertical-align:middle}
+.consulta-table tbody tr{transition:background 0.15s}
+.consulta-table tbody tr:hover{background:var(--surface)}
+.consulta-table .cli-col{font-weight:500}
+.status-active{color:var(--trimestral);font-weight:600;font-size:0.78rem}
+.status-warn{color:#f39c12;font-weight:600;font-size:0.78rem}
+.status-expired{color:var(--danger);font-weight:600;font-size:0.78rem}
 .empty{text-align:center;padding:3rem 1rem;color:var(--text-muted);font-size:0.9rem}
 .empty svg{margin-bottom:0.75rem;opacity:0.3}
 .user-list,.cliente-list{display:flex;flex-direction:column;gap:0.5rem;margin-top:1rem}
@@ -194,6 +203,7 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
           <button class="nav-dropdown-btn" data-group="pessoa">Pessoa</button>
           <div class="nav-dropdown-menu">
             <button class="nav-link" data-page="clientes">Clientes</button>
+            <button class="nav-link" data-page="consulta">Consulta</button>
           </div>
         </div>
         <div class="nav-dropdown">
@@ -307,6 +317,33 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
     </div>
   </div>
 
+  <!-- PAGE: CONSULTA -->
+  <div class="page" id="pageConsulta" style="display:none">
+    <div class="content">
+      <h2 class="page-title">Licencas Ativas por Cliente</h2>
+      <div class="search-bar">
+        <input type="text" id="consultaSearch" placeholder="Buscar cliente...">
+      </div>
+      <div style="overflow-x:auto">
+        <table class="consulta-table" id="consultaTable">
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>Licenca</th>
+              <th>Tipo</th>
+              <th>Categoria</th>
+              <th>Ativacao</th>
+              <th>Vencimento</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="consultaBody"></tbody>
+        </table>
+      </div>
+      <div id="consultaEmpty" class="empty" style="display:none">Nenhum cliente com licenca ativa</div>
+    </div>
+  </div>
+
   <!-- PAGE: PENDENTES -->
   <div class="page" id="pagePendentes" style="display:none">
     <div class="content">
@@ -395,6 +432,7 @@ const pageDashboard = $('pageDashboard'), pagePendentes = $('pagePendentes');
 const dashCardsEl = $('dashCards'), dashByTipo = $('dashByTipo'), dashByCat = $('dashByCat');
 const dashTopCli = $('dashTopCli'), dashRecent = $('dashRecent');
 const pendListEl = $('pendList'), pendSearch = $('pendSearch');
+const pageConsulta = $('pageConsulta'), consultaBody = $('consultaBody'), consultaSearch = $('consultaSearch'), consultaEmpty = $('consultaEmpty');
 const statsEl = $('stats'), tabsEl = $('tabs'), cardListEl = $('cardList'), searchInput = $('searchInput');
 const addBar = $('addBar'), btnAdd = $('btnAdd'), addCategoria = $('addCategoria');
 const batchInput = $('batchInput'), batchValor = $('batchValor'), batchCategoria = $('batchCategoria'), btnBatch = $('btnBatch'), batchStatus = $('batchStatus');
@@ -407,7 +445,7 @@ const tgToken = $('tgToken'), tgChatId = $('tgChatId'), btnSaveTg = $('btnSaveTg
 const btnTelegram = $('btnTelegram');
 
 let cards=[], users=[], clientes=[], categorias=[], currentUser=null, currentUserDoc=null;
-let activeTab='todos', searchQuery='', cliSearchQuery='', pendSearchQuery='', currentPage='dashboard';
+let activeTab='todos', searchQuery='', cliSearchQuery='', pendSearchQuery='', consultaSearchQuery='', currentPage='dashboard';
 let unsubCards=null, unsubUsers=null, unsubClientes=null, unsubCats=null;
 let tgConfig={token:'',chatId:''};
 
@@ -506,11 +544,13 @@ function switchPage(page){
   pageList.style.display=page==='list'?'':'none';
   pageCadastro.style.display=page==='cadastro'?'':'none';
   pageClientes.style.display=page==='clientes'?'':'none';
+  pageConsulta.style.display=page==='consulta'?'':'none';
   pagePendentes.style.display=page==='pendentes'?'':'none';
   pageCategorias.style.display=page==='categorias'?'':'none';
   pageUsuarios.style.display=page==='usuarios'?'':'none';
   if(page==='dashboard') renderDashboard();
   if(page==='pendentes') renderPendentes();
+  if(page==='consulta') renderConsulta();
 }
 
 // ============================================================
@@ -723,6 +763,66 @@ function renderDashboard(){
     const vt=vencTag(c.dataUso,c.tipo);
     return '<li><span class="r-desc">'+esc(c.desc)+(c.clienteNome?' &mdash; '+esc(c.clienteNome):'')+'</span><span class="r-meta">'+d+' '+vt+(c.valor!=null?' &middot; R$ '+fmtV(c.valor):'')+'</span></li>';
   }).join(''):'<li style="color:var(--text-muted)">Nenhum uso recente</li>';
+}
+
+// ============================================================
+// CONSULTA - Licencas ativas por cliente
+// ============================================================
+consultaSearch.addEventListener('input',e=>{consultaSearchQuery=e.target.value.toLowerCase().trim();renderConsulta()});
+
+function renderConsulta(){
+  const hoje=new Date();
+  const usados=cards.filter(c=>c.usado&&c.clienteId&&c.dataUso);
+
+  // Agrupar por cliente, pegar apenas a licenca com vencimento mais recente
+  const porCli={};
+  usados.forEach(c=>{
+    if(!porCli[c.clienteId]) porCli[c.clienteId]=[];
+    porCli[c.clienteId].push(c);
+  });
+
+  const rows=[];
+  Object.entries(porCli).forEach(([cliId,arr])=>{
+    arr.sort((a,b)=>(calcVenc(b.dataUso,b.tipo)||0)-(calcVenc(a.dataUso,a.tipo)||0));
+    const c=arr[0];
+    const venc=calcVenc(c.dataUso,c.tipo);
+    if(!venc) return;
+    const diff=Math.ceil((venc-hoje)/(1000*60*60*24));
+    rows.push({
+      nome:c.clienteNome||'Sem nome',
+      desc:c.desc,
+      tipo:c.tipo,
+      cat:c.categoria||'-',
+      ativacao:c.dataUso,
+      venc:venc,
+      vencStr:venc.toLocaleDateString('pt-BR'),
+      ativStr:new Date(c.dataUso+'T12:00:00').toLocaleDateString('pt-BR'),
+      diff:diff,
+      status:diff<0?'Vencido':diff<=7?'Vence em '+diff+'d':'Ativo ('+diff+'d)'
+    });
+  });
+
+  // Ordenar: ativos primeiro (por vencimento asc), depois vencidos
+  rows.sort((a,b)=>{
+    if(a.diff>=0&&b.diff<0) return -1;
+    if(a.diff<0&&b.diff>=0) return 1;
+    return a.diff-b.diff;
+  });
+
+  let filtered=rows;
+  if(consultaSearchQuery) filtered=filtered.filter(r=>r.nome.toLowerCase().includes(consultaSearchQuery)||r.desc.toLowerCase().includes(consultaSearchQuery)||r.cat.toLowerCase().includes(consultaSearchQuery));
+
+  if(!filtered.length){
+    consultaBody.innerHTML='';
+    consultaEmpty.style.display='';
+    return;
+  }
+  consultaEmpty.style.display='none';
+
+  consultaBody.innerHTML=filtered.map(r=>{
+    const cls=r.diff<0?'status-expired':r.diff<=7?'status-warn':'status-active';
+    return '<tr><td class="cli-col">'+esc(r.nome)+'</td><td>'+esc(r.desc)+'</td><td style="text-transform:capitalize">'+r.tipo+'</td><td>'+esc(r.cat)+'</td><td>'+r.ativStr+'</td><td>'+r.vencStr+'</td><td class="'+cls+'">'+r.status+'</td></tr>';
+  }).join('');
 }
 
 // ============================================================
