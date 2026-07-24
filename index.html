@@ -365,6 +365,7 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
       <h2 class="page-title">Cadastrar Categoria</h2>
       <div class="add-bar" style="flex-direction:column">
         <input type="text" id="catNome" placeholder="Nome da categoria" autocomplete="off">
+        <input type="number" id="catCusto" placeholder="Custo (R$)" step="0.01" min="0" style="width:100%!important">
         <button class="btn-add" id="btnAddCat">+ Cadastrar Categoria</button>
       </div>
       <div class="cliente-list" id="catList"></div>
@@ -438,7 +439,7 @@ const addBar = $('addBar'), btnAdd = $('btnAdd'), addCategoria = $('addCategoria
 const batchInput = $('batchInput'), batchValor = $('batchValor'), batchCategoria = $('batchCategoria'), btnBatch = $('btnBatch'), batchStatus = $('batchStatus');
 const cliNome = $('cliNome'), cliLogin = $('cliLogin'), cliSenha = $('cliSenha'), btnAddCliente = $('btnAddCliente');
 const cliSearch = $('cliSearch'), clienteListEl = $('clienteList');
-const catNome = $('catNome'), btnAddCat = $('btnAddCat'), catListEl = $('catList');
+const catNome = $('catNome'), catCusto = $('catCusto'), btnAddCat = $('btnAddCat'), catListEl = $('catList');
 const newUserEmail = $('newUserEmail'), newUserPass = $('newUserPass'), newUserRole = $('newUserRole');
 const btnCreateUser = $('btnCreateUser'), userListEl = $('userList');
 const tgToken = $('tgToken'), tgChatId = $('tgChatId'), btnSaveTg = $('btnSaveTg'), btnTestTg = $('btnTestTg'), tgStatus = $('tgStatus');
@@ -716,13 +717,28 @@ function renderDashboard(){
   let pendCount=0;
   Object.values(porCli).forEach(arr=>{arr.sort((a,b)=>(calcVenc(b.dataUso,b.tipo)||0)-(calcVenc(a.dataUso,a.tipo)||0));const v=calcVenc(arr[0].dataUso,arr[0].tipo);if(v&&v<hoje)pendCount++});
 
+  // Vendas do mes atual
+  const mesAtual=hoje.getMonth(),anoAtual=hoje.getFullYear();
+  const vendasMes=usados.filter(c=>{if(!c.dataUso)return false;const d=new Date(c.dataUso+'T12:00:00');return d.getMonth()===mesAtual&&d.getFullYear()===anoAtual});
+  const vendaMesVal=vendasMes.reduce((s,c)=>s+(c.valor||0),0);
+  const vendaMesQtd=vendasMes.length;
+  // Custo do mes - baseado na categoria de cada venda
+  const catCustoMap={};
+  categorias.forEach(ct=>{if(ct.custo!=null)catCustoMap[ct.nome]=ct.custo});
+  const custoMes=vendasMes.reduce((s,c)=>s+(c.categoria&&catCustoMap[c.categoria]!=null?catCustoMap[c.categoria]:0),0);
+  const lucroMes=vendaMesVal-custoMes;
+  const nomeMes=hoje.toLocaleDateString('pt-BR',{month:'long'}).replace(/^\w/,l=>l.toUpperCase());
+
   // Summary cards
   dashCardsEl.innerHTML=
     '<div class="dash-card" onclick="goToPage(\'list\')"><div class="dash-label">Total Licencas</div><div class="dash-value">'+cards.length+'</div><div class="dash-sub">R$ '+fmtV(totalVal)+'</div><div class="dash-icon">&#127915;</div></div>'+
     '<div class="dash-card" onclick="goToPage(\'list\')"><div class="dash-label">Ativas</div><div class="dash-value" style="color:var(--accent)">'+ativos.length+'</div><div class="dash-sub">R$ '+fmtV(ativoVal)+'</div><div class="dash-icon">&#9989;</div></div>'+
     '<div class="dash-card" onclick="goToPage(\'list\');setTimeout(()=>{const t=document.querySelector(\'.tab[data-tab=usados]\');if(t)t.click()},50)"><div class="dash-label">Usadas</div><div class="dash-value" style="color:var(--usado)">'+usados.length+'</div><div class="dash-sub">R$ '+fmtV(usadoVal)+'</div><div class="dash-icon">&#128230;</div></div>'+
     '<div class="dash-card" onclick="goToPage(\'clientes\')"><div class="dash-label">Clientes</div><div class="dash-value" style="color:var(--trimestral)">'+totalCli+'</div><div class="dash-sub">cadastrados</div><div class="dash-icon">&#128101;</div></div>'+
-    '<div class="dash-card" onclick="goToPage(\'pendentes\')"><div class="dash-label">Pendentes</div><div class="dash-value" style="color:var(--danger)">'+pendCount+'</div><div class="dash-sub">licencas vencidas</div><div class="dash-icon">&#9888;</div></div>';
+    '<div class="dash-card" onclick="goToPage(\'pendentes\')"><div class="dash-label">Pendentes</div><div class="dash-value" style="color:var(--danger)">'+pendCount+'</div><div class="dash-sub">licencas vencidas</div><div class="dash-icon">&#9888;</div></div>'+
+    '<div class="dash-card"><div class="dash-label">Vendas '+nomeMes+'</div><div class="dash-value" style="color:#f39c12">R$ '+fmtV(vendaMesVal)+'</div><div class="dash-sub">'+vendaMesQtd+' licencas vendidas</div><div class="dash-icon">&#128176;</div></div>'+
+    '<div class="dash-card"><div class="dash-label">Custo '+nomeMes+'</div><div class="dash-value" style="color:var(--danger)">R$ '+fmtV(custoMes)+'</div><div class="dash-sub">baseado nas categorias</div><div class="dash-icon">&#128200;</div></div>'+
+    '<div class="dash-card"><div class="dash-label">Lucro '+nomeMes+'</div><div class="dash-value" style="color:'+(lucroMes>=0?'var(--trimestral)':'var(--danger)')+'">R$ '+fmtV(lucroMes)+'</div><div class="dash-sub">venda - custo</div><div class="dash-icon">&#11088;</div></div>';
 
   // By Tipo
   const tipos=['mensal','trimestral','anual'];
@@ -945,19 +961,29 @@ function updateCatSelects(){
 
 btnAddCat.addEventListener('click',async()=>{
   const nome=catNome.value.trim();
+  const custo=catCusto.value?parseFloat(catCusto.value):null;
   if(!nome){catNome.focus();return}
   try{
-    await db.collection('categorias').add({nome,criadoEm:firebase.firestore.FieldValue.serverTimestamp()});
-    catNome.value='';toast('Categoria cadastrada!');
+    await db.collection('categorias').add({nome,custo,criadoEm:firebase.firestore.FieldValue.serverTimestamp()});
+    catNome.value='';catCusto.value='';toast('Categoria cadastrada!');
   }catch(e){toast('Erro ao cadastrar',true)}
 });
 
 function renderCategorias(){
   if(!categorias.length){catListEl.innerHTML='<div class="empty">Nenhuma categoria cadastrada</div>';return}
   catListEl.innerHTML=categorias.map(c=>{
-    return '<div class="cliente-item"><div><div class="cli-name">'+esc(c.nome)+'</div></div><button class="btn-remove-user" onclick="removeCat(\''+c.id+'\')">&#10005;</button></div>';
+    const custoStr=c.custo!=null?'Custo: R$ '+fmtV(c.custo):'Sem custo';
+    return '<div class="cliente-item"><div><div class="cli-name">'+esc(c.nome)+'</div><div class="cli-detail">'+custoStr+'</div></div><button class="btn-sm" onclick="editCusto(\''+c.id+'\')">&#9998;</button><button class="btn-remove-user" onclick="removeCat(\''+c.id+'\')">&#10005;</button></div>';
   }).join('');
 }
+
+window.editCusto=async function(id){
+  const cat=categorias.find(c=>c.id===id);if(!cat)return;
+  const val=prompt('Novo custo para '+cat.nome+':',cat.custo!=null?cat.custo:'');
+  if(val===null)return;
+  const nv=val?parseFloat(val):null;
+  try{await db.collection('categorias').doc(id).update({custo:nv});toast('Custo atualizado')}catch(e){toast('Erro ao atualizar',true)}
+};
 
 window.removeCat=async function(id){
   if(!confirm('Remover esta categoria?'))return;
