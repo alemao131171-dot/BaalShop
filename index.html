@@ -108,6 +108,14 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
 .status-active{color:var(--trimestral);font-weight:600;font-size:0.78rem}
 .status-warn{color:#f39c12;font-weight:600;font-size:0.78rem}
 .status-expired{color:var(--danger);font-weight:600;font-size:0.78rem}
+.consulta-table td.editable{cursor:pointer;position:relative}
+.consulta-table td.editable:hover{background:var(--surface-2)}
+.consulta-table .edit-input{background:var(--surface-2);border:1px solid var(--accent);border-radius:4px;color:var(--text);font-family:"Inter",sans-serif;font-size:0.82rem;padding:3px 6px;width:100%;outline:none;box-sizing:border-box}
+.consulta-table .edit-select{background:var(--surface-2);border:1px solid var(--accent);border-radius:4px;color:var(--text);font-family:"Inter",sans-serif;font-size:0.82rem;padding:3px 4px;outline:none}
+.est-status{font-size:0.75rem;font-weight:600;padding:2px 8px;border-radius:4px;display:inline-block}
+.est-status.ativo{background:rgba(162,155,254,0.12);color:var(--accent)}
+.est-status.usado{background:rgba(99,110,131,0.15);color:var(--usado)}
+.est-actions{display:flex;gap:3px}
 .empty{text-align:center;padding:3rem 1rem;color:var(--text-muted);font-size:0.9rem}
 .empty svg{margin-bottom:0.75rem;opacity:0.3}
 .user-list,.cliente-list{display:flex;flex-direction:column;gap:0.5rem;margin-top:1rem}
@@ -196,6 +204,7 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
           <button class="nav-dropdown-btn" data-group="produtos">Produtos</button>
           <div class="nav-dropdown-menu">
             <button class="nav-link" data-page="cadastro">Cadastro</button>
+            <button class="nav-link" data-page="estoque">Estoque</button>
             <button class="nav-link" data-page="categorias">Categorias</button>
           </div>
         </div>
@@ -298,6 +307,45 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
           <span id="batchStatus" style="font-size:0.82rem;color:var(--text-muted)"></span>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- PAGE: ESTOQUE -->
+  <div class="page" id="pageEstoque" style="display:none">
+    <div class="content">
+      <h2 class="page-title">Estoque de Licencas</h2>
+      <div style="display:flex;gap:0.75rem;margin-bottom:1rem;flex-wrap:wrap;align-items:center">
+        <div class="search-bar" style="flex:1;min-width:200px;margin-bottom:0">
+          <input type="text" id="estoqueSearch" placeholder="Buscar por descricao, codigo, categoria, cliente...">
+        </div>
+        <select id="estoqueFilterStatus" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:'Inter',sans-serif;font-size:0.85rem;padding:0.6rem 0.75rem;outline:none">
+          <option value="todos">Todos</option>
+          <option value="ativo">Ativos</option>
+          <option value="usado">Usados</option>
+        </select>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="consulta-table" id="estoqueTable">
+          <thead>
+            <tr>
+              <th>Descricao</th>
+              <th>Codigo</th>
+              <th>Valor</th>
+              <th>Tipo</th>
+              <th>Categoria</th>
+              <th>Compra</th>
+              <th>Status</th>
+              <th>Uso</th>
+              <th>Cliente</th>
+              <th>Vencimento</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="estoqueBody"></tbody>
+        </table>
+      </div>
+      <div id="estoqueEmpty" class="empty" style="display:none">Nenhuma licenca encontrada</div>
+      <div id="estoqueCount" style="font-size:0.78rem;color:var(--text-muted);margin-top:0.75rem;text-align:right"></div>
     </div>
   </div>
 
@@ -435,6 +483,7 @@ const dashCardsEl = $('dashCards'), dashByTipo = $('dashByTipo'), dashByCat = $(
 const dashTopCli = $('dashTopCli'), dashRecent = $('dashRecent');
 const pendListEl = $('pendList'), pendSearch = $('pendSearch');
 const pageConsulta = $('pageConsulta'), consultaBody = $('consultaBody'), consultaSearch = $('consultaSearch'), consultaEmpty = $('consultaEmpty');
+const pageEstoque = $('pageEstoque'), estoqueBody = $('estoqueBody'), estoqueSearch = $('estoqueSearch'), estoqueEmpty = $('estoqueEmpty'), estoqueCount = $('estoqueCount'), estoqueFilterStatus = $('estoqueFilterStatus');
 const statsEl = $('stats'), tabsEl = $('tabs'), cardListEl = $('cardList'), searchInput = $('searchInput');
 const addBar = $('addBar'), btnAdd = $('btnAdd'), addCategoria = $('addCategoria');
 const batchInput = $('batchInput'), batchValor = $('batchValor'), batchCategoria = $('batchCategoria'), btnBatch = $('btnBatch'), batchStatus = $('batchStatus');
@@ -447,7 +496,7 @@ const tgToken = $('tgToken'), tgChatId = $('tgChatId'), btnSaveTg = $('btnSaveTg
 const btnTelegram = $('btnTelegram');
 
 let cards=[], users=[], clientes=[], categorias=[], currentUser=null, currentUserDoc=null;
-let activeTab='todos', searchQuery='', cliSearchQuery='', pendSearchQuery='', consultaSearchQuery='', currentPage='dashboard';
+let activeTab='todos', searchQuery='', cliSearchQuery='', pendSearchQuery='', consultaSearchQuery='', estoqueSearchQuery='', estoqueStatusFilter='todos', currentPage='dashboard';
 let unsubCards=null, unsubUsers=null, unsubClientes=null, unsubCats=null;
 let tgConfig={token:'',chatId:''};
 
@@ -545,6 +594,7 @@ function switchPage(page){
   pageDashboard.style.display=page==='dashboard'?'':'none';
   pageList.style.display=page==='list'?'':'none';
   pageCadastro.style.display=page==='cadastro'?'':'none';
+  pageEstoque.style.display=page==='estoque'?'':'none';
   pageClientes.style.display=page==='clientes'?'':'none';
   pageConsulta.style.display=page==='consulta'?'':'none';
   pagePendentes.style.display=page==='pendentes'?'':'none';
@@ -553,6 +603,7 @@ function switchPage(page){
   if(page==='dashboard') renderDashboard();
   if(page==='pendentes') renderPendentes();
   if(page==='consulta') renderConsulta();
+  if(page==='estoque') renderEstoque();
 }
 
 // ============================================================
@@ -560,7 +611,7 @@ function switchPage(page){
 // ============================================================
 function subscribeCards(){
   unsubCards=db.collection('giftcards').orderBy('criadoEm','desc').onSnapshot(snap=>{
-    cards=snap.docs.map(d=>({id:d.id,...d.data()}));renderCards();if(currentPage==='dashboard')renderDashboard();
+    cards=snap.docs.map(d=>({id:d.id,...d.data()}));renderCards();if(currentPage==='dashboard')renderDashboard();if(currentPage==='estoque')renderEstoque();if(currentPage==='consulta')renderConsulta();if(currentPage==='pendentes')renderPendentes();
   },err=>{console.error(err);toast('Erro ao carregar gift cards',true)});
 }
 
@@ -787,6 +838,104 @@ function renderDashboard(){
     return '<li><span class="r-desc">'+esc(c.desc)+(c.clienteNome?' &mdash; '+esc(c.clienteNome):'')+'</span><span class="r-meta">'+d+' '+vt+(c.valor!=null?' &middot; R$ '+fmtV(c.valor):'')+'</span></li>';
   }).join(''):'<li style="color:var(--text-muted)">Nenhum uso recente</li>';
 }
+
+// ============================================================
+// ESTOQUE - Lista completa com edicao
+// ============================================================
+estoqueSearch.addEventListener('input',e=>{estoqueSearchQuery=e.target.value.toLowerCase().trim();renderEstoque()});
+estoqueFilterStatus.addEventListener('change',e=>{estoqueStatusFilter=e.target.value;renderEstoque()});
+
+function renderEstoque(){
+  let list=[...cards];
+
+  // Filtro status
+  if(estoqueStatusFilter==='ativo') list=list.filter(c=>!c.usado);
+  else if(estoqueStatusFilter==='usado') list=list.filter(c=>c.usado);
+
+  // Busca
+  if(estoqueSearchQuery) list=list.filter(c=>
+    (c.desc||'').toLowerCase().includes(estoqueSearchQuery)||
+    (c.code||'').toLowerCase().includes(estoqueSearchQuery)||
+    (c.categoria||'').toLowerCase().includes(estoqueSearchQuery)||
+    (c.clienteNome||'').toLowerCase().includes(estoqueSearchQuery)||
+    (c.tipo||'').toLowerCase().includes(estoqueSearchQuery)
+  );
+
+  estoqueCount.textContent=list.length+' de '+cards.length+' licencas';
+
+  if(!list.length){
+    estoqueBody.innerHTML='';estoqueEmpty.style.display='';return;
+  }
+  estoqueEmpty.style.display='none';
+
+  const catOpts=categorias.map(ct=>'<option value="'+esc(ct.nome)+'">'+esc(ct.nome)+'</option>').join('');
+
+  estoqueBody.innerHTML=list.map(c=>{
+    const vl=c.valor!=null?'R$ '+fmtV(c.valor):'-';
+    const dc=c.dataCompra?new Date(c.dataCompra+'T12:00:00').toLocaleDateString('pt-BR'):'-';
+    const du=c.dataUso?new Date(c.dataUso+'T12:00:00').toLocaleDateString('pt-BR'):'-';
+    const vc=c.usado&&c.dataUso?vencTag(c.dataUso,c.tipo):'-';
+    const st=c.usado?'<span class="est-status usado">Usado</span>':'<span class="est-status ativo">Ativo</span>';
+    const cli=c.clienteNome?esc(c.clienteNome):'-';
+
+    return '<tr data-id="'+c.id+'">'+
+      '<td class="editable" onclick="estEdit(\''+c.id+'\',\'desc\',this)">'+esc(c.desc||'')+'</td>'+
+      '<td class="editable" onclick="estEdit(\''+c.id+'\',\'code\',this)"><code style="font-size:0.78rem">'+esc(c.code||'-')+'</code></td>'+
+      '<td class="editable" onclick="estEdit(\''+c.id+'\',\'valor\',this)">'+vl+'</td>'+
+      '<td class="editable" onclick="estEditSelect(\''+c.id+'\',\'tipo\',this)">'+(c.tipo||'-')+'</td>'+
+      '<td class="editable" onclick="estEditSelect(\''+c.id+'\',\'categoria\',this)">'+(c.categoria||'-')+'</td>'+
+      '<td class="editable" onclick="estEdit(\''+c.id+'\',\'dataCompra\',this)">'+dc+'</td>'+
+      '<td>'+st+'</td>'+
+      '<td>'+du+'</td>'+
+      '<td>'+cli+'</td>'+
+      '<td>'+vc+'</td>'+
+      '<td><div class="est-actions"><button class="btn-delete" onclick="excluir(\''+c.id+'\')" title="Excluir">&#10005;</button></div></td>'+
+      '</tr>';
+  }).join('');
+}
+
+// Edicao inline de texto/numero/data
+window.estEdit=function(id,field,td){
+  const card=cards.find(c=>c.id===id);if(!card)return;
+  if(td.querySelector('input'))return; // ja editando
+  const oldVal=card[field]!=null?card[field]:'';
+  let type='text';
+  if(field==='valor')type='number';
+  if(field==='dataCompra')type='date';
+  const inputVal=field==='valor'?(oldVal||''):field==='dataCompra'?(oldVal||''):oldVal;
+  td.innerHTML='<input class="edit-input" type="'+type+'" value="'+esc(String(inputVal))+'"'+(type==='number'?' step="0.01"':'')+'>';
+  const inp=td.querySelector('input');inp.focus();if(type==='text')inp.select();
+
+  async function save(){
+    let nv=inp.value;
+    if(field==='valor') nv=nv?parseFloat(nv):null;
+    else if(field==='dataCompra') nv=nv||null;
+    else nv=nv.trim();
+    try{await db.collection('giftcards').doc(id).update({[field]:nv});toast('Atualizado')}catch(e){toast('Erro',true);renderEstoque()}
+  }
+  inp.addEventListener('blur',save);
+  inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();inp.blur()}if(e.key==='Escape')renderEstoque()});
+};
+
+// Edicao inline de select (tipo/categoria)
+window.estEditSelect=function(id,field,td){
+  const card=cards.find(c=>c.id===id);if(!card)return;
+  if(td.querySelector('select'))return;
+  let opts='';
+  if(field==='tipo'){
+    opts='<option value="mensal"'+(card.tipo==='mensal'?' selected':'')+'>Mensal</option><option value="trimestral"'+(card.tipo==='trimestral'?' selected':'')+'>Trimestral</option><option value="anual"'+(card.tipo==='anual'?' selected':'')+'>Anual</option>';
+  }else if(field==='categoria'){
+    opts='<option value="">-- Nenhuma --</option>'+categorias.map(ct=>'<option value="'+esc(ct.nome)+'"'+(card.categoria===ct.nome?' selected':'')+'>'+esc(ct.nome)+'</option>').join('');
+  }
+  td.innerHTML='<select class="edit-select">'+opts+'</select>';
+  const sel=td.querySelector('select');sel.focus();
+
+  sel.addEventListener('change',async function(){
+    const nv=sel.value||null;
+    try{await db.collection('giftcards').doc(id).update({[field]:nv});toast('Atualizado')}catch(e){toast('Erro',true);renderEstoque()}
+  });
+  sel.addEventListener('blur',()=>setTimeout(renderEstoque,150));
+};
 
 // ============================================================
 // CONSULTA - Licencas ativas por cliente
