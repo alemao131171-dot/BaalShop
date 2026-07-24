@@ -777,12 +777,12 @@ function renderDashboard(){
   const vendaMesVal=vendasMes.reduce((s,c)=>s+(c.valor||0),0);
   const vendaMesQtd=vendasMes.length;
   // Compras do mes (baseado em dataCompra)
-  const comprasMes=cards.filter(c=>{if(!c.dataCompra)return false;const d=new Date(c.dataCompra+'T12:00:00');return d.getMonth()===mesAtual&&d.getFullYear()===anoAtual});
-  const compraMesVal=comprasMes.reduce((s,c)=>s+(c.valor||0),0);
-  const compraMesQtd=comprasMes.length;
-  // Custo do mes - baseado na categoria de cada venda
   const catCustoMap={};
   categorias.forEach(ct=>{if(ct.custo!=null)catCustoMap[ct.nome]=ct.custo});
+  const comprasMes=cards.filter(c=>{if(!c.dataCompra)return false;const d=new Date(c.dataCompra+'T12:00:00');return d.getMonth()===mesAtual&&d.getFullYear()===anoAtual});
+  const compraMesCusto=comprasMes.reduce((s,c)=>s+(c.categoria&&catCustoMap[c.categoria]!=null?catCustoMap[c.categoria]:0),0);
+  const compraMesQtd=comprasMes.length;
+  // Custo do mes - baseado na categoria de cada venda
   const custoMes=vendasMes.reduce((s,c)=>s+(c.categoria&&catCustoMap[c.categoria]!=null?catCustoMap[c.categoria]:0),0);
   const lucroMes=vendaMesVal-custoMes;
   const nomeMes=hoje.toLocaleDateString('pt-BR',{month:'long'}).replace(/^\w/,l=>l.toUpperCase());
@@ -791,7 +791,7 @@ function renderDashboard(){
   dashCardsEl.innerHTML=
     '<div class="dash-card" onclick="goToPage(\'list\')"><div class="dash-label">Total Licencas</div><div class="dash-value">'+cards.length+'</div><div class="dash-sub">R$ '+fmtV(totalVal)+'</div><div class="dash-icon">&#127915;</div></div>'+
     '<div class="dash-card" onclick="goToPage(\'list\')"><div class="dash-label">Ativas</div><div class="dash-value" style="color:var(--accent)">'+ativos.length+'</div><div class="dash-sub">R$ '+fmtV(ativoVal)+'</div><div class="dash-icon">&#9989;</div></div>'+
-    '<div class="dash-card"><div class="dash-label">Compras '+nomeMes+'</div><div class="dash-value" style="color:var(--usado)">'+compraMesQtd+'</div><div class="dash-sub">R$ '+fmtV(compraMesVal)+'</div><div class="dash-icon">&#128722;</div></div>'+
+    '<div class="dash-card"><div class="dash-label">Compras '+nomeMes+'</div><div class="dash-value" style="color:var(--usado)">'+compraMesQtd+'</div><div class="dash-sub">R$ '+fmtV(compraMesCusto)+'</div><div class="dash-icon">&#128722;</div></div>'+
     '<div class="dash-card" onclick="goToPage(\'clientes\')"><div class="dash-label">Clientes</div><div class="dash-value" style="color:var(--trimestral)">'+totalCli+'</div><div class="dash-sub">cadastrados</div><div class="dash-icon">&#128101;</div></div>'+
     '<div class="dash-card" onclick="goToPage(\'pendentes\')"><div class="dash-label">Pendentes</div><div class="dash-value" style="color:var(--danger)">'+pendCount+'</div><div class="dash-sub">licencas vencidas</div><div class="dash-icon">&#9888;</div></div>'+
     '<div class="dash-card"><div class="dash-label">Vendas '+nomeMes+'</div><div class="dash-value" style="color:#f39c12">R$ '+fmtV(vendaMesVal)+'</div><div class="dash-sub">'+vendaMesQtd+' licencas vendidas</div><div class="dash-icon">&#128176;</div></div>'+
