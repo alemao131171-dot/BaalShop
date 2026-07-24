@@ -282,6 +282,7 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
         <select name="categoria" id="addCategoria" style="width:100%!important">
           <option value="">-- Categoria --</option>
         </select>
+        <input name="dataCompra" type="date" style="width:100%!important;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:'Inter',sans-serif;font-size:0.85rem;padding:0.6rem 0.75rem;outline:none" title="Data de compra">
         <button class="btn-add" id="btnAdd">+ Adicionar Gift Card</button>
       </div>
       <div style="border-top:1px solid var(--border);margin-top:2rem;padding-top:1.75rem">
@@ -570,10 +571,11 @@ btnAdd.addEventListener('click',async()=>{
   const valor=addBar.querySelector('[name="valor"]').value;
   const tipo=addBar.querySelector('[name="tipo"]').value;
   const cat=addCategoria.value;
+  const dataCompra=addBar.querySelector('[name="dataCompra"]').value||null;
   if(!desc){addBar.querySelector('[name="desc"]').focus();return}
   try{
-    await db.collection('giftcards').add({desc,code,valor:valor?parseFloat(valor):null,tipo,categoria:cat||null,usado:false,dataUso:null,clienteId:null,clienteNome:null,criadoEm:firebase.firestore.FieldValue.serverTimestamp(),criadoPor:currentUser.uid});
-    addBar.querySelector('[name="desc"]').value='';addBar.querySelector('[name="code"]').value='';addBar.querySelector('[name="valor"]').value='';
+    await db.collection('giftcards').add({desc,code,valor:valor?parseFloat(valor):null,tipo,categoria:cat||null,dataCompra,usado:false,dataUso:null,clienteId:null,clienteNome:null,criadoEm:firebase.firestore.FieldValue.serverTimestamp(),criadoPor:currentUser.uid});
+    addBar.querySelector('[name="desc"]').value='';addBar.querySelector('[name="code"]').value='';addBar.querySelector('[name="valor"]').value='';addBar.querySelector('[name="dataCompra"]').value='';
     toast('Gift card adicionado!');
   }catch(e){toast('Erro ao adicionar',true)}
 });
@@ -584,6 +586,7 @@ btnBatch.addEventListener('click',async()=>{
   const raw=batchInput.value.trim();if(!raw){batchInput.focus();return}
   const valor=batchValor.value?parseFloat(batchValor.value):null;
   const batchCat=batchCategoria.value||null;
+  const batchDataCompra=new Date().toISOString().slice(0,10);
   const lines=raw.split('\n').map(l=>l.trim()).filter(l=>l);if(!lines.length)return;
   btnBatch.disabled=true;batchStatus.textContent='Importando...';
   let ok=0,fail=0;
@@ -597,7 +600,7 @@ btnBatch.addEventListener('click',async()=>{
       else{const p2=line.split(/\s{2,}/);if(p2.length>=2){desc=p2[0].trim();code=p2.slice(1).join(' ').trim()}else{desc=line;code=''}}
       if(!desc){fail++;continue}
       const ref=db.collection('giftcards').doc();
-      batch.set(ref,{desc,code,valor,tipo:detectTipo(desc),categoria:batchCat,usado:false,dataUso:null,clienteId:null,clienteNome:null,criadoEm:firebase.firestore.FieldValue.serverTimestamp(),criadoPor:currentUser.uid});ok++;
+      batch.set(ref,{desc,code,valor,tipo:detectTipo(desc),categoria:batchCat,dataCompra:batchDataCompra,usado:false,dataUso:null,clienteId:null,clienteNome:null,criadoEm:firebase.firestore.FieldValue.serverTimestamp(),criadoPor:currentUser.uid});ok++;
     }
     try{await batch.commit()}catch(e){fail+=chunk.length;ok-=chunk.length}
     batchStatus.textContent='Importando... '+Math.min(i+bsz,lines.length)+'/'+lines.length;
@@ -722,6 +725,10 @@ function renderDashboard(){
   const vendasMes=usados.filter(c=>{if(!c.dataUso)return false;const d=new Date(c.dataUso+'T12:00:00');return d.getMonth()===mesAtual&&d.getFullYear()===anoAtual});
   const vendaMesVal=vendasMes.reduce((s,c)=>s+(c.valor||0),0);
   const vendaMesQtd=vendasMes.length;
+  // Compras do mes (baseado em dataCompra)
+  const comprasMes=cards.filter(c=>{if(!c.dataCompra)return false;const d=new Date(c.dataCompra+'T12:00:00');return d.getMonth()===mesAtual&&d.getFullYear()===anoAtual});
+  const compraMesVal=comprasMes.reduce((s,c)=>s+(c.valor||0),0);
+  const compraMesQtd=comprasMes.length;
   // Custo do mes - baseado na categoria de cada venda
   const catCustoMap={};
   categorias.forEach(ct=>{if(ct.custo!=null)catCustoMap[ct.nome]=ct.custo});
@@ -733,7 +740,7 @@ function renderDashboard(){
   dashCardsEl.innerHTML=
     '<div class="dash-card" onclick="goToPage(\'list\')"><div class="dash-label">Total Licencas</div><div class="dash-value">'+cards.length+'</div><div class="dash-sub">R$ '+fmtV(totalVal)+'</div><div class="dash-icon">&#127915;</div></div>'+
     '<div class="dash-card" onclick="goToPage(\'list\')"><div class="dash-label">Ativas</div><div class="dash-value" style="color:var(--accent)">'+ativos.length+'</div><div class="dash-sub">R$ '+fmtV(ativoVal)+'</div><div class="dash-icon">&#9989;</div></div>'+
-    '<div class="dash-card" onclick="goToPage(\'list\');setTimeout(()=>{const t=document.querySelector(\'.tab[data-tab=usados]\');if(t)t.click()},50)"><div class="dash-label">Usadas</div><div class="dash-value" style="color:var(--usado)">'+usados.length+'</div><div class="dash-sub">R$ '+fmtV(usadoVal)+'</div><div class="dash-icon">&#128230;</div></div>'+
+    '<div class="dash-card"><div class="dash-label">Compras '+nomeMes+'</div><div class="dash-value" style="color:var(--usado)">'+compraMesQtd+'</div><div class="dash-sub">R$ '+fmtV(compraMesVal)+'</div><div class="dash-icon">&#128722;</div></div>'+
     '<div class="dash-card" onclick="goToPage(\'clientes\')"><div class="dash-label">Clientes</div><div class="dash-value" style="color:var(--trimestral)">'+totalCli+'</div><div class="dash-sub">cadastrados</div><div class="dash-icon">&#128101;</div></div>'+
     '<div class="dash-card" onclick="goToPage(\'pendentes\')"><div class="dash-label">Pendentes</div><div class="dash-value" style="color:var(--danger)">'+pendCount+'</div><div class="dash-sub">licencas vencidas</div><div class="dash-icon">&#9888;</div></div>'+
     '<div class="dash-card"><div class="dash-label">Vendas '+nomeMes+'</div><div class="dash-value" style="color:#f39c12">R$ '+fmtV(vendaMesVal)+'</div><div class="dash-sub">'+vendaMesQtd+' licencas vendidas</div><div class="dash-icon">&#128176;</div></div>'+
