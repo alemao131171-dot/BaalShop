@@ -116,6 +116,10 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
 .est-status.ativo{background:rgba(162,155,254,0.12);color:var(--accent)}
 .est-status.usado{background:rgba(99,110,131,0.15);color:var(--usado)}
 .est-actions{display:flex;gap:3px}
+.ped-status{font-size:0.75rem;font-weight:600;padding:2px 8px;border-radius:4px;display:inline-block}
+.ped-status.pendente{background:rgba(243,156,18,0.15);color:#f39c12}
+.ped-status.atribuido{background:rgba(0,184,148,0.15);color:var(--trimestral)}
+.ped-status.cancelado{background:rgba(255,107,107,0.15);color:var(--danger)}
 .empty{text-align:center;padding:3rem 1rem;color:var(--text-muted);font-size:0.9rem}
 .empty svg{margin-bottom:0.75rem;opacity:0.3}
 .user-list,.cliente-list{display:flex;flex-direction:column;gap:0.5rem;margin-top:1rem}
@@ -220,6 +224,7 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
           <div class="nav-dropdown-menu">
             <button class="nav-link" data-page="list">Lista</button>
             <button class="nav-link" data-page="pendentes">Pendentes</button>
+            <button class="nav-link" data-page="pedidos">Pedidos</button>
           </div>
         </div>
         <button class="nav-link" data-page="usuarios" id="navUsuarios" style="display:none">Usuarios</button>
@@ -408,6 +413,43 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
     </div>
   </div>
 
+  <!-- PAGE: PEDIDOS -->
+  <div class="page" id="pagePedidos" style="display:none">
+    <div class="content">
+      <h2 class="page-title">Pedidos (Storefront)</h2>
+      <div class="stats" id="pedidosStats"></div>
+      <div style="display:flex;gap:0.75rem;margin-bottom:1rem;flex-wrap:wrap;align-items:center">
+        <div class="search-bar" style="flex:1;min-width:200px;margin-bottom:0">
+          <input type="text" id="pedidosSearch" placeholder="Buscar por cliente, contato ou produto...">
+        </div>
+        <select id="pedidosFilterStatus" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:'Inter',sans-serif;font-size:0.85rem;padding:0.6rem 0.75rem;outline:none">
+          <option value="todos">Todos</option>
+          <option value="pendente">Pendentes</option>
+          <option value="atribuido">Atribuidos</option>
+          <option value="cancelado">Cancelados</option>
+        </select>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="consulta-table" id="pedidosTable">
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>Contato</th>
+              <th>Produto</th>
+              <th>Tipo</th>
+              <th>Valor</th>
+              <th>Status</th>
+              <th>Data</th>
+              <th>Acao / Codigo</th>
+            </tr>
+          </thead>
+          <tbody id="pedidosBody"></tbody>
+        </table>
+      </div>
+      <div id="pedidosEmpty" class="empty" style="display:none">Nenhum pedido encontrado</div>
+    </div>
+  </div>
+
   <!-- PAGE: CATEGORIAS -->
   <div class="page" id="pageCategorias" style="display:none">
     <div class="content">
@@ -484,6 +526,7 @@ const dashTopCli = $('dashTopCli'), dashRecent = $('dashRecent');
 const pendListEl = $('pendList'), pendSearch = $('pendSearch');
 const pageConsulta = $('pageConsulta'), consultaBody = $('consultaBody'), consultaSearch = $('consultaSearch'), consultaEmpty = $('consultaEmpty');
 const pageEstoque = $('pageEstoque'), estoqueBody = $('estoqueBody'), estoqueSearch = $('estoqueSearch'), estoqueEmpty = $('estoqueEmpty'), estoqueCount = $('estoqueCount'), estoqueFilterStatus = $('estoqueFilterStatus');
+const pagePedidos = $('pagePedidos'), pedidosBody = $('pedidosBody'), pedidosSearch = $('pedidosSearch'), pedidosFilterStatus = $('pedidosFilterStatus'), pedidosEmpty = $('pedidosEmpty'), pedidosStatsEl = $('pedidosStats');
 const statsEl = $('stats'), tabsEl = $('tabs'), cardListEl = $('cardList'), searchInput = $('searchInput');
 const addBar = $('addBar'), btnAdd = $('btnAdd'), addCategoria = $('addCategoria');
 const batchInput = $('batchInput'), batchValor = $('batchValor'), batchCategoria = $('batchCategoria'), btnBatch = $('btnBatch'), batchStatus = $('batchStatus');
@@ -495,10 +538,11 @@ const btnCreateUser = $('btnCreateUser'), userListEl = $('userList');
 const tgToken = $('tgToken'), tgChatId = $('tgChatId'), btnSaveTg = $('btnSaveTg'), btnTestTg = $('btnTestTg'), tgStatus = $('tgStatus');
 const btnTelegram = $('btnTelegram');
 
-let cards=[], users=[], clientes=[], categorias=[], currentUser=null, currentUserDoc=null;
-let activeTab='todos', searchQuery='', cliSearchQuery='', pendSearchQuery='', consultaSearchQuery='', estoqueSearchQuery='', estoqueStatusFilter='todos', currentPage='dashboard';
-let unsubCards=null, unsubUsers=null, unsubClientes=null, unsubCats=null;
+let cards=[], users=[], clientes=[], categorias=[], pedidos=[], currentUser=null, currentUserDoc=null;
+let activeTab='todos', searchQuery='', cliSearchQuery='', pendSearchQuery='', consultaSearchQuery='', estoqueSearchQuery='', estoqueStatusFilter='todos', pedidosSearchQuery='', pedidosStatusFilter='todos', currentPage='dashboard';
+let unsubCards=null, unsubUsers=null, unsubClientes=null, unsubCats=null, unsubPedidos=null;
 let tgConfig={token:'',chatId:''};
+let catalogoSyncTimer=null;
 
 function toast(msg,isErr){toastEl.textContent=msg;toastEl.className='toast show'+(isErr?' error':'');setTimeout(()=>toastEl.className='toast',2500)}
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
@@ -517,16 +561,19 @@ auth.onAuthStateChanged(async user=>{
     navUser.textContent=user.email;
     navUsuarios.style.display=currentUserDoc.role==='admin'?'':'none';
     showScreen('app');
-    subscribeCards(); subscribeClientes(); subscribeCategorias();
+    subscribeCards(); subscribeClientes(); subscribeCategorias(); subscribePedidos();
     if(currentUserDoc.role==='admin') subscribeUsers();
     loadTgConfig();
+    initCatalogoSync();
   }else{
     currentUser=null;currentUserDoc=null;
     if(unsubCards){unsubCards();unsubCards=null}
     if(unsubUsers){unsubUsers();unsubUsers=null}
     if(unsubClientes){unsubClientes();unsubClientes=null}
     if(unsubCats){unsubCats();unsubCats=null}
-    cards=[];users=[];clientes=[];categorias=[];
+    if(unsubPedidos){unsubPedidos();unsubPedidos=null}
+    if(catalogoSyncTimer){clearTimeout(catalogoSyncTimer);catalogoSyncTimer=null}
+    cards=[];users=[];clientes=[];categorias=[];pedidos=[];
     showScreen('login');
   }
   loadingOverlay.style.display='none';
@@ -598,12 +645,14 @@ function switchPage(page){
   pageClientes.style.display=page==='clientes'?'':'none';
   pageConsulta.style.display=page==='consulta'?'':'none';
   pagePendentes.style.display=page==='pendentes'?'':'none';
+  pagePedidos.style.display=page==='pedidos'?'':'none';
   pageCategorias.style.display=page==='categorias'?'':'none';
   pageUsuarios.style.display=page==='usuarios'?'':'none';
   if(page==='dashboard') renderDashboard();
   if(page==='pendentes') renderPendentes();
   if(page==='consulta') renderConsulta();
   if(page==='estoque') renderEstoque();
+  if(page==='pedidos') renderPedidos();
 }
 
 // ============================================================
@@ -612,7 +661,15 @@ function switchPage(page){
 function subscribeCards(){
   unsubCards=db.collection('giftcards').orderBy('criadoEm','desc').onSnapshot(snap=>{
     cards=snap.docs.map(d=>({id:d.id,...d.data()}));renderCards();if(currentPage==='dashboard')renderDashboard();if(currentPage==='estoque')renderEstoque();if(currentPage==='consulta')renderConsulta();if(currentPage==='pendentes')renderPendentes();
+    scheduleCatalogoSync();
   },err=>{console.error(err);toast('Erro ao carregar gift cards',true)});
+}
+
+// Verifica se um codigo ja esta cadastrado em outro giftcard (ativo ou usado)
+function codigoDuplicado(code,excludeId){
+  const c=(code||'').trim().toLowerCase();
+  if(!c) return false;
+  return cards.some(card=>card.id!==excludeId&&(card.code||'').trim().toLowerCase()===c);
 }
 
 // ADD
@@ -624,6 +681,7 @@ btnAdd.addEventListener('click',async()=>{
   const cat=addCategoria.value;
   const dataCompra=addBar.querySelector('[name="dataCompra"]').value||null;
   if(!desc){addBar.querySelector('[name="desc"]').focus();return}
+  if(codigoDuplicado(code)){toast('Este codigo ja esta cadastrado',true);addBar.querySelector('[name="code"]').focus();return}
   try{
     await db.collection('giftcards').add({desc,code,valor:valor?parseFloat(valor):null,tipo,categoria:cat||null,dataCompra,usado:false,dataUso:null,clienteId:null,clienteNome:null,criadoEm:firebase.firestore.FieldValue.serverTimestamp(),criadoPor:currentUser.uid});
     addBar.querySelector('[name="desc"]').value='';addBar.querySelector('[name="code"]').value='';addBar.querySelector('[name="valor"]').value='';addBar.querySelector('[name="dataCompra"]').value='';
@@ -640,24 +698,30 @@ btnBatch.addEventListener('click',async()=>{
   const batchDataCompra=new Date().toISOString().slice(0,10);
   const lines=raw.split('\n').map(l=>l.trim()).filter(l=>l);if(!lines.length)return;
   btnBatch.disabled=true;batchStatus.textContent='Importando...';
-  let ok=0,fail=0;
+  let ok=0,fail=0,dup=0;
+  const codigosVistos=new Set(cards.filter(c=>c.code).map(c=>c.code.trim().toLowerCase()));
   function detectTipo(d){d=d.toLowerCase();if(d.includes('anual'))return'anual';if(d.includes('trimestral'))return'trimestral';return'mensal'}
   const bsz=450;
   for(let i=0;i<lines.length;i+=bsz){
     const chunk=lines.slice(i,i+bsz);const batch=db.batch();
+    let chunkOps=0;
     for(const line of chunk){
       const parts=line.split(/\t+/);let desc,code;
       if(parts.length>=2){desc=parts[0].trim();code=parts.slice(1).join(' ').trim()}
       else{const p2=line.split(/\s{2,}/);if(p2.length>=2){desc=p2[0].trim();code=p2.slice(1).join(' ').trim()}else{desc=line;code=''}}
       if(!desc){fail++;continue}
+      const codeKey=code.trim().toLowerCase();
+      if(codeKey&&codigosVistos.has(codeKey)){dup++;continue}
+      if(codeKey)codigosVistos.add(codeKey);
       const ref=db.collection('giftcards').doc();
-      batch.set(ref,{desc,code,valor,tipo:detectTipo(desc),categoria:batchCat,dataCompra:batchDataCompra,usado:false,dataUso:null,clienteId:null,clienteNome:null,criadoEm:firebase.firestore.FieldValue.serverTimestamp(),criadoPor:currentUser.uid});ok++;
+      batch.set(ref,{desc,code,valor,tipo:detectTipo(desc),categoria:batchCat,dataCompra:batchDataCompra,usado:false,dataUso:null,clienteId:null,clienteNome:null,criadoEm:firebase.firestore.FieldValue.serverTimestamp(),criadoPor:currentUser.uid});ok++;chunkOps++;
     }
-    try{await batch.commit()}catch(e){fail+=chunk.length;ok-=chunk.length}
+    if(chunkOps){try{await batch.commit()}catch(e){fail+=chunkOps;ok-=chunkOps}}
     batchStatus.textContent='Importando... '+Math.min(i+bsz,lines.length)+'/'+lines.length;
   }
-  batchStatus.textContent=ok+' importados'+(fail?', '+fail+' erros':'');
-  if(ok>0){batchInput.value='';toast(ok+' gift cards importados!')}
+  batchStatus.textContent=ok+' importados'+(dup?', '+dup+' duplicados ignorados':'')+(fail?', '+fail+' erros':'');
+  if(ok>0){batchInput.value='';toast(ok+' gift cards importados!'+(dup?' ('+dup+' duplicados ignorados)':''))}
+  else if(dup>0){toast(dup+' codigo(s) duplicado(s) ignorado(s), nada importado',true)}
   btnBatch.disabled=false;
 });
 
@@ -911,6 +975,7 @@ window.estEdit=function(id,field,td){
     if(field==='valor') nv=nv?parseFloat(nv):null;
     else if(field==='dataCompra') nv=nv||null;
     else nv=nv.trim();
+    if(field==='code'&&codigoDuplicado(nv,id)){toast('Este codigo ja esta cadastrado em outro card',true);renderEstoque();return}
     try{await db.collection('giftcards').doc(id).update({[field]:nv});toast('Atualizado')}catch(e){toast('Erro',true);renderEstoque()}
   }
   inp.addEventListener('blur',save);
@@ -1144,6 +1209,130 @@ window.editCusto=async function(id){
 window.removeCat=async function(id){
   if(!confirm('Remover esta categoria?'))return;
   try{await db.collection('categorias').doc(id).delete();toast('Categoria removida')}catch(e){toast('Erro ao remover',true)}
+};
+
+// ============================================================
+// CATALOGO - sincroniza contagem de disponiveis por descricao
+// (colecao publica lida pelo storefront BaalShop Recargas, sem codigos)
+// ============================================================
+function slugify(s){
+  return (s||'').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')||'sem-descricao';
+}
+
+function initCatalogoSync(){
+  scheduleCatalogoSync();
+}
+
+function scheduleCatalogoSync(){
+  if(catalogoSyncTimer) clearTimeout(catalogoSyncTimer);
+  catalogoSyncTimer=setTimeout(syncCatalogo,1500);
+}
+
+async function syncCatalogo(){
+  const map={};
+  cards.forEach(c=>{
+    const key=c.desc||'(sem descricao)';
+    if(!map[key]) map[key]={desc:c.desc||'',tipo:c.tipo||null,categoria:c.categoria||null,valor:null,disponiveis:0};
+    if(!c.usado){
+      map[key].disponiveis++;
+      if(map[key].valor==null&&c.valor!=null) map[key].valor=c.valor;
+      map[key].tipo=c.tipo||map[key].tipo;
+      map[key].categoria=c.categoria||map[key].categoria;
+    }
+  });
+  try{
+    const existing=await db.collection('catalogo').get();
+    const ids=new Set(Object.keys(map).map(slugify));
+    const batch=db.batch();
+    Object.entries(map).forEach(([key,data])=>{
+      const id=slugify(key);
+      batch.set(db.collection('catalogo').doc(id),{...data,atualizadoEm:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+    });
+    existing.docs.forEach(d=>{if(!ids.has(d.id)) batch.delete(d.ref)});
+    await batch.commit();
+  }catch(e){console.error('Erro ao sincronizar catalogo:',e)}
+}
+
+// ============================================================
+// PEDIDOS - pedidos criados pelo storefront BaalShop Recargas
+// ============================================================
+function subscribePedidos(){
+  unsubPedidos=db.collection('pedidos').orderBy('criadoEm','desc').onSnapshot(snap=>{
+    pedidos=snap.docs.map(d=>({id:d.id,...d.data()}));
+    if(currentPage==='pedidos') renderPedidos();
+    if(currentPage==='dashboard') renderDashboard();
+  },err=>{console.error(err);toast('Erro ao carregar pedidos',true)});
+}
+
+pedidosSearch.addEventListener('input',e=>{pedidosSearchQuery=e.target.value.toLowerCase().trim();renderPedidos()});
+pedidosFilterStatus.addEventListener('change',e=>{pedidosStatusFilter=e.target.value;renderPedidos()});
+
+function renderPedidos(){
+  const pPend=pedidos.filter(p=>p.status==='pendente').length;
+  const pAtrib=pedidos.filter(p=>p.status==='atribuido').length;
+  const pCanc=pedidos.filter(p=>p.status==='cancelado').length;
+  pedidosStatsEl.innerHTML='<div class="stat"><span class="dot" style="background:#f39c12"></span>Pendentes: <strong>'+pPend+'</strong></div><div class="stat"><span class="dot" style="background:var(--trimestral)"></span>Atribuidos: <strong>'+pAtrib+'</strong></div><div class="stat"><span class="dot" style="background:var(--danger)"></span>Cancelados: <strong>'+pCanc+'</strong></div><div class="stat"><span class="dot" style="background:var(--accent)"></span>Total: <strong>'+pedidos.length+'</strong></div>';
+
+  let list=[...pedidos];
+  if(pedidosStatusFilter!=='todos') list=list.filter(p=>p.status===pedidosStatusFilter);
+  if(pedidosSearchQuery) list=list.filter(p=>
+    (p.clienteNome||'').toLowerCase().includes(pedidosSearchQuery)||
+    (p.clienteContato||'').toLowerCase().includes(pedidosSearchQuery)||
+    (p.desc||'').toLowerCase().includes(pedidosSearchQuery)
+  );
+
+  if(!list.length){pedidosBody.innerHTML='';pedidosEmpty.style.display='';return}
+  pedidosEmpty.style.display='none';
+
+  const statusLabel={pendente:'Pendente',atribuido:'Atribuido',cancelado:'Cancelado'};
+  pedidosBody.innerHTML=list.map(p=>{
+    const dt=p.criadoEm?p.criadoEm.toDate().toLocaleDateString('pt-BR')+' '+p.criadoEm.toDate().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'-';
+    const vl=p.valor!=null?'R$ '+fmtV(p.valor):'-';
+    const st='<span class="ped-status '+p.status+'">'+(statusLabel[p.status]||p.status)+'</span>';
+    let acts='-';
+    if(p.status==='pendente'){
+      acts='<button class="btn-use" onclick="atribuirCodigo(\''+p.id+'\')">Atribuir Codigo</button><button class="btn-delete" onclick="cancelarPedido(\''+p.id+'\')">Cancelar</button>';
+    }else if(p.status==='atribuido'){
+      acts='<code style="font-size:0.78rem">'+esc(p.codigo||'')+'</code>';
+    }
+    return '<tr data-id="'+p.id+'">'+
+      '<td class="cli-col">'+esc(p.clienteNome||'-')+'</td>'+
+      '<td>'+esc(p.clienteContato||'-')+'</td>'+
+      '<td>'+esc(p.desc||'-')+'</td>'+
+      '<td style="text-transform:capitalize">'+(p.tipo||'-')+'</td>'+
+      '<td>'+vl+'</td>'+
+      '<td>'+st+'</td>'+
+      '<td>'+dt+'</td>'+
+      '<td><div class="est-actions">'+acts+'</div></td>'+
+      '</tr>';
+  }).join('');
+}
+
+// Busca um giftcard disponivel com a mesma descricao e atribui ao pedido via transacao
+window.atribuirCodigo=async function(pedidoId){
+  const pedido=pedidos.find(p=>p.id===pedidoId);
+  if(!pedido)return;
+  if(pedido.status!=='pendente'){toast('Pedido nao esta pendente',true);return}
+  try{
+    const snap=await db.collection('giftcards').where('desc','==',pedido.desc).where('usado','==',false).limit(1).get();
+    if(snap.empty){toast('Nenhum codigo disponivel para este produto',true);return}
+    const cardRef=snap.docs[0].ref;
+    const pedidoRef=db.collection('pedidos').doc(pedidoId);
+    await db.runTransaction(async tx=>{
+      const cardDoc=await tx.get(cardRef);
+      if(!cardDoc.exists||cardDoc.data().usado) throw new Error('Codigo ja foi utilizado, tente novamente');
+      const card=cardDoc.data();
+      const hoje=new Date().toISOString().slice(0,10);
+      tx.update(cardRef,{usado:true,dataUso:hoje,clienteNome:pedido.clienteNome||null,clienteId:null});
+      tx.update(pedidoRef,{status:'atribuido',codigo:card.code||'',giftcardId:cardRef.id,atribuidoEm:firebase.firestore.FieldValue.serverTimestamp(),atribuidoPor:currentUser.uid});
+    });
+    toast('Codigo atribuido com sucesso!');
+  }catch(e){console.error(e);toast(e.message||'Erro ao atribuir codigo',true)}
+};
+
+window.cancelarPedido=async function(id){
+  if(!confirm('Cancelar este pedido?'))return;
+  try{await db.collection('pedidos').doc(id).update({status:'cancelado',canceladoEm:firebase.firestore.FieldValue.serverTimestamp(),canceladoPor:currentUser.uid});toast('Pedido cancelado')}catch(e){toast('Erro ao cancelar',true)}
 };
 
 // ============================================================
