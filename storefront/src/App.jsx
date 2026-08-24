@@ -1,4 +1,7 @@
 import { useState, useEffect, useCallback, createContext, useContext } from "react";
+import QRCode from "qrcode";
+import { buildPixPayload } from "./pix.js";
+import { PIX_CONFIG } from "./pixConfig.js";
 
 /*
  * BAALSHOP RECARGAS — Storefront + Firebase (baalshopgiftcards)
@@ -391,6 +394,39 @@ function Download() {
   );
 }
 
+function PixQrBlock({ payload }) {
+  const [dataUrl, setDataUrl] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setDataUrl(null);
+    QRCode.toDataURL(payload, { margin: 1, width: 220 })
+      .then((url) => { if (active) setDataUrl(url); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [payload]);
+
+  const copiar = () => {
+    navigator.clipboard.writeText(payload).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div style={{ textAlign: "center", marginBottom: 20 }}>
+      {dataUrl
+        ? <img src={dataUrl} alt="QR Code Pix" style={{ width: 200, height: 200, borderRadius: 12, border: "1px solid #eee" }} />
+        : <div style={{ width: 200, height: 200, margin: "0 auto", background: "#f3f3f3", borderRadius: 12 }} />}
+      <p style={{ fontSize: 13, color: "#888", margin: "10px 0" }}>Escaneie com o app do seu banco ou copie o código Pix abaixo</p>
+      <button type="button" onClick={copiar} style={{ background: "#d97706", color: "#fff", border: "none", borderRadius: 10, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+        {copied ? "✓ Copiado!" : "📋 Copiar código Pix"}
+      </button>
+    </div>
+  );
+}
+
 function Checkout() {
   const { cart, updQty, rmItem, total, setPage, pay, setPay, plans, submitOrder } = use$();
   const [f, setF] = useState({ email: "", name: "", phone: "" });
@@ -411,20 +447,33 @@ function Checkout() {
     </div></div>
   );
 
-  if (step === "done") return (
-    <div style={S.ckC}><div style={S.sucB}>
-      <div style={{ fontSize: 56, marginBottom: 8 }}>✅</div>
-      <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>Pedido registrado!</h2>
-      <p style={{ color: "#666", lineHeight: 1.6, marginBottom: 24 }}>Em breve entraremos em contato pelo<br /><strong style={{ color: "#d97706" }}>{f.phone || f.email}</strong><br />para combinar o pagamento e enviar o código.</p>
-      <div style={S.sumB}>
-        <div style={S.ordN}>Pedido #{oid ? oid.slice(0, 8) : "..."}</div>
-        {cart.map(i => <div key={i.plan.id} style={S.sumL}><span>{i.plan.nome} × {i.qty}</span><span style={{ fontWeight: 600 }}>{fmt(i.plan.preco * i.qty)}</span></div>)}
-        <div style={S.sumL}><span style={{ fontSize: 12, color: "#999" }}>Preferência: {pay === "pix" ? "Pix" : "Cartão"}</span></div>
-        <div style={{ ...S.sumL, borderTop: "2px solid #e5e5e5", paddingTop: 10, marginTop: 6, fontWeight: 700, fontSize: 16 }}><span>Total estimado</span><span style={{ color: "#d97706" }}>{fmt(total)}</span></div>
-      </div>
-      <button style={S.mainBtn} onClick={() => setPage("home")}>Voltar ao início</button>
-    </div></div>
-  );
+  if (step === "done") {
+    const pixAtivo = pay === "pix" && !!PIX_CONFIG.chave && !!PIX_CONFIG.cidade;
+    const pixPayload = pixAtivo ? buildPixPayload({ chave: PIX_CONFIG.chave, nome: PIX_CONFIG.nome, cidade: PIX_CONFIG.cidade, valor: total, txid: oid }) : null;
+    return (
+      <div style={S.ckC}><div style={S.sucB}>
+        <div style={{ fontSize: 56, marginBottom: 8 }}>✅</div>
+        <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>Pedido registrado!</h2>
+        {pixAtivo ? (
+          <>
+            <p style={{ color: "#666", lineHeight: 1.6, marginBottom: 20 }}>
+              Pague agora pelo Pix abaixo. Depois de confirmarmos o pagamento, enviamos o código para <strong style={{ color: "#d97706" }}>{f.phone || f.email}</strong>.
+            </p>
+            <PixQrBlock payload={pixPayload} />
+          </>
+        ) : (
+          <p style={{ color: "#666", lineHeight: 1.6, marginBottom: 24 }}>Em breve entraremos em contato pelo<br /><strong style={{ color: "#d97706" }}>{f.phone || f.email}</strong><br />para combinar o pagamento e enviar o código.</p>
+        )}
+        <div style={S.sumB}>
+          <div style={S.ordN}>Pedido #{oid ? oid.slice(0, 8) : "..."}</div>
+          {cart.map(i => <div key={i.plan.id} style={S.sumL}><span>{i.plan.nome} × {i.qty}</span><span style={{ fontWeight: 600 }}>{fmt(i.plan.preco * i.qty)}</span></div>)}
+          <div style={S.sumL}><span style={{ fontSize: 12, color: "#999" }}>Preferência: {pay === "pix" ? "Pix" : "Cartão"}</span></div>
+          <div style={{ ...S.sumL, borderTop: "2px solid #e5e5e5", paddingTop: 10, marginTop: 6, fontWeight: 700, fontSize: 16 }}><span>Total estimado</span><span style={{ color: "#d97706" }}>{fmt(total)}</span></div>
+        </div>
+        <button style={S.mainBtn} onClick={() => setPage("home")}>Voltar ao início</button>
+      </div></div>
+    );
+  }
 
   const doSubmit = async () => { setBusy(true); setErr(null); try { const id = await submitOrder(f); setOid(id); setSt("done"); } catch (e) { setErr(e.message); } finally { setBusy(false); } };
 
