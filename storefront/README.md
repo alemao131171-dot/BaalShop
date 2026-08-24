@@ -16,26 +16,25 @@ admin (GitHub Pages, exige login)
 
 ### Coleção `catalogo` (leitura pública, sem código nenhum)
 
-Escrita automaticamente pelo admin (`syncCatalogo()` em `index.html`). Um documento por descrição de produto:
+Escrita automaticamente pelo admin (`syncCatalogo()` em `index.html`). Um documento por **categoria** de produto (não por descrição — a descrição de cada giftcard pode ser única por unidade/número de série, então `categoria` é o campo estável que identifica o produto):
 
 | campo         | tipo    | descrição                                  |
 |---------------|---------|---------------------------------------------|
-| `desc`        | string  | descrição exata do giftcard (chave de match) |
+| `categoria`   | string  | categoria exata do giftcard (chave de match) |
 | `tipo`        | string  | `mensal` / `trimestral` / `anual`            |
-| `categoria`   | string? | categoria (opcional)                         |
 | `valor`       | number? | preço de venda                               |
-| `disponiveis` | number  | quantos giftcards com essa `desc` estão livres |
+| `disponiveis` | number  | quantos giftcards dessa `categoria` estão livres |
 | `atualizadoEm`| timestamp | última sincronização                       |
 
 O storefront **nunca** vê `code` — essa coleção não guarda códigos.
 
 ### Coleção `pedidos` (criação pública, sem leitura/edição pública)
 
-O storefront cria **um documento por unidade comprada** (se o cliente pede 2x o mesmo plano, são 2 documentos, ligados por `grupoId`). Isso é o que permite ao admin usar "Atribuir Código" (que busca 1 giftcard livre por `desc` e faz a atribuição via transação).
+O storefront cria **um documento por unidade comprada** (se o cliente pede 2x o mesmo plano, são 2 documentos, ligados por `grupoId`). Isso é o que permite ao admin usar "Atribuir Código" (que busca 1 giftcard livre por `categoria` e faz a atribuição via transação).
 
 | campo                      | tipo      | descrição                                    |
 |----------------------------|-----------|-----------------------------------------------|
-| `desc`                     | string    | igual ao `catalogo.desc` do item comprado     |
+| `categoria`                | string    | igual ao `catalogo.categoria` do item comprado |
 | `tipo`                     | string    | copiado do catálogo                           |
 | `valor`                    | number    | preço no momento da compra                    |
 | `clienteNome`               | string    | nome informado no formulário                  |
@@ -69,7 +68,7 @@ service cloud.firestore {
       allow create: if request.auth == null
         && request.resource.data.status == 'pendente'
         && request.resource.data.origem == 'storefront'
-        && request.resource.data.desc is string
+        && request.resource.data.categoria is string
         && request.resource.data.clienteNome is string
         && request.resource.data.valor is number;
     }

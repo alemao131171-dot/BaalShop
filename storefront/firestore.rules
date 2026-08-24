@@ -28,7 +28,7 @@ service cloud.firestore {
       allow create: if request.auth == null
         && request.resource.data.status == 'pendente'
         && request.resource.data.origem == 'storefront'
-        && request.resource.data.desc is string
+        && request.resource.data.categoria is string
         && request.resource.data.clienteNome is string
         && request.resource.data.valor is number;
     }

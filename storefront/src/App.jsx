@@ -90,12 +90,12 @@ const FEATURES_POR_TIPO = {
 };
 
 const FALLBACK = [
-  { id: "unitv-mensal", desc: "UniTV-Mensal", tipo: "mensal", categoria: null, valor: 22, disponiveis: 0 },
-  { id: "unitv-anual", desc: "UniTV-Anual", tipo: "anual", categoria: null, valor: 180, disponiveis: 0 },
+  { id: "unitv-mensal", categoria: "UniTV Mensal", tipo: "mensal", valor: 22, disponiveis: 0 },
+  { id: "unitv-anual", categoria: "UniTV Anual", tipo: "anual", valor: 180, disponiveis: 0 },
 ];
 
-function prettify(desc) {
-  return (desc || "").replace(/[-_]+/g, " ").trim() || "Plano";
+function prettify(s) {
+  return (s || "").replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim() || "Plano";
 }
 
 function tipoPeriodo(tipo) {
@@ -103,15 +103,18 @@ function tipoPeriodo(tipo) {
 }
 
 // Mapeia o documento real do Firestore (schema do admin) para o shape usado na UI.
-// `desc` (raw) e mantido para casar exatamente com giftcards.desc na hora de criar o pedido.
+// Agrupamos por `categoria` (nao por `desc`) porque a descricao de cada giftcard
+// pode ser unica por unidade (numero de serie); `categoria` e o campo estavel que
+// identifica o produto. `categoriaRaw` e mantido para casar exatamente com
+// giftcards.categoria na hora de criar o pedido.
 function norm(doc) {
   const tipo = doc.tipo || "mensal";
+  const categoriaRaw = doc.categoria || tipo;
   return {
     id: doc.id,
-    descRaw: doc.desc || "",
-    nome: prettify(doc.desc),
+    categoriaRaw,
+    nome: prettify(categoriaRaw),
     tipo,
-    categoria: doc.categoria || null,
     period: tipoPeriodo(tipo),
     badge: tipo === "anual" ? "Melhor custo-benefício" : null,
     preco: doc.valor != null ? doc.valor : 0,
@@ -176,7 +179,7 @@ function Prov({ children }) {
       for (let n = 0; n < item.qty; n++) {
         const ref = db.collection("pedidos").doc();
         batch.set(ref, {
-          desc: item.plan.descRaw,
+          categoria: item.plan.categoriaRaw,
           tipo: item.plan.tipo,
           valor: item.plan.preco,
           clienteNome: cli.name,

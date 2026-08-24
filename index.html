@@ -1260,15 +1260,17 @@ function scheduleCatalogoSync(){
 }
 
 async function syncCatalogo(){
+  // Agrupa por categoria (fallback: tipo) em vez de descricao, ja que a descricao
+  // pode ser unica por card (numero de serie/codigo colado); categoria e o campo
+  // estavel que identifica o produto para o storefront.
   const map={};
   cards.forEach(c=>{
-    const key=c.desc||'(sem descricao)';
-    if(!map[key]) map[key]={desc:c.desc||'',tipo:c.tipo||null,categoria:c.categoria||null,valor:null,disponiveis:0};
+    const key=c.categoria||c.tipo||'(sem categoria)';
+    if(!map[key]) map[key]={categoria:c.categoria||null,tipo:c.tipo||null,valor:null,disponiveis:0};
     if(!c.usado){
       map[key].disponiveis++;
       if(map[key].valor==null&&c.valor!=null) map[key].valor=c.valor;
       map[key].tipo=c.tipo||map[key].tipo;
-      map[key].categoria=c.categoria||map[key].categoria;
     }
   });
   try{
@@ -1309,7 +1311,7 @@ function renderPedidos(){
   if(pedidosSearchQuery) list=list.filter(p=>
     (p.clienteNome||'').toLowerCase().includes(pedidosSearchQuery)||
     (p.clienteContato||'').toLowerCase().includes(pedidosSearchQuery)||
-    (p.desc||'').toLowerCase().includes(pedidosSearchQuery)
+    (p.categoria||p.desc||'').toLowerCase().includes(pedidosSearchQuery)
   );
 
   if(!list.length){pedidosBody.innerHTML='';pedidosEmpty.style.display='';return}
@@ -1329,7 +1331,7 @@ function renderPedidos(){
     return '<tr data-id="'+p.id+'">'+
       '<td class="cli-col">'+esc(p.clienteNome||'-')+'</td>'+
       '<td>'+esc(p.clienteContato||'-')+'</td>'+
-      '<td>'+esc(p.desc||'-')+'</td>'+
+      '<td>'+esc(p.categoria||p.desc||'-')+'</td>'+
       '<td style="text-transform:capitalize">'+(p.tipo||'-')+'</td>'+
       '<td>'+vl+'</td>'+
       '<td>'+st+'</td>'+
@@ -1345,7 +1347,7 @@ window.atribuirCodigo=async function(pedidoId){
   if(!pedido)return;
   if(pedido.status!=='pendente'){toast('Pedido nao esta pendente',true);return}
   try{
-    const snap=await db.collection('giftcards').where('desc','==',pedido.desc).where('usado','==',false).limit(1).get();
+    const snap=await db.collection('giftcards').where('categoria','==',pedido.categoria).where('usado','==',false).limit(1).get();
     if(snap.empty){toast('Nenhum codigo disponivel para este produto',true);return}
     const cardRef=snap.docs[0].ref;
     const pedidoRef=db.collection('pedidos').doc(pedidoId);
