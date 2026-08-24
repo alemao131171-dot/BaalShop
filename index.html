@@ -328,6 +328,7 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
           <option value="ativo">Ativos</option>
           <option value="usado">Usados</option>
         </select>
+        <button class="btn-sm" id="btnFixDescCodigo" title="Corrige cards onde o codigo ficou colado dentro da descricao">🔧 Corrigir descricao+codigo</button>
       </div>
       <div style="overflow-x:auto">
         <table class="consulta-table" id="estoqueTable">
@@ -525,7 +526,7 @@ const dashCardsEl = $('dashCards'), dashByTipo = $('dashByTipo'), dashByCat = $(
 const dashTopCli = $('dashTopCli'), dashRecent = $('dashRecent');
 const pendListEl = $('pendList'), pendSearch = $('pendSearch');
 const pageConsulta = $('pageConsulta'), consultaBody = $('consultaBody'), consultaSearch = $('consultaSearch'), consultaEmpty = $('consultaEmpty');
-const pageEstoque = $('pageEstoque'), estoqueBody = $('estoqueBody'), estoqueSearch = $('estoqueSearch'), estoqueEmpty = $('estoqueEmpty'), estoqueCount = $('estoqueCount'), estoqueFilterStatus = $('estoqueFilterStatus');
+const pageEstoque = $('pageEstoque'), estoqueBody = $('estoqueBody'), estoqueSearch = $('estoqueSearch'), estoqueEmpty = $('estoqueEmpty'), estoqueCount = $('estoqueCount'), estoqueFilterStatus = $('estoqueFilterStatus'), btnFixDescCodigo = $('btnFixDescCodigo');
 const pagePedidos = $('pagePedidos'), pedidosBody = $('pedidosBody'), pedidosSearch = $('pedidosSearch'), pedidosFilterStatus = $('pedidosFilterStatus'), pedidosEmpty = $('pedidosEmpty'), pedidosStatsEl = $('pedidosStats');
 const statsEl = $('stats'), tabsEl = $('tabs'), cardListEl = $('cardList'), searchInput = $('searchInput');
 const addBar = $('addBar'), btnAdd = $('btnAdd'), addCategoria = $('addCategoria');
@@ -908,6 +909,36 @@ function renderDashboard(){
 // ============================================================
 estoqueSearch.addEventListener('input',e=>{estoqueSearchQuery=e.target.value.toLowerCase().trim();renderEstoque()});
 estoqueFilterStatus.addEventListener('change',e=>{estoqueStatusFilter=e.target.value;renderEstoque()});
+
+// Corrige cards importados onde o codigo ficou colado no final da descricao
+// (ex: "UniTV-Mensal 2062219039522785" -> desc:"UniTV-Mensal", code:"2062219039522785")
+btnFixDescCodigo.addEventListener('click',async()=>{
+  const candidatos=cards.filter(c=>!c.code&&/^(.+\S)\s+(\d{8,})$/.test(c.desc||''));
+  if(!candidatos.length){toast('Nenhuma descricao com codigo colado encontrada');return}
+  const previa=candidatos.slice(0,5).map(c=>{
+    const m=c.desc.match(/^(.+\S)\s+(\d{8,})$/);
+    return c.desc+'  ->  desc:"'+m[1]+'" + code:"'+m[2]+'"';
+  }).join('\n');
+  const msg='Encontrados '+candidatos.length+' card(s) com codigo colado na descricao:\n\n'+previa+(candidatos.length>5?'\n... e mais '+(candidatos.length-5):'')+'\n\nCorrigir agora?';
+  if(!confirm(msg))return;
+  btnFixDescCodigo.disabled=true;
+  try{
+    let feitos=0;
+    for(let i=0;i<candidatos.length;i+=450){
+      const chunk=candidatos.slice(i,i+450);
+      const batch=db.batch();
+      chunk.forEach(c=>{
+        const m=c.desc.match(/^(.+\S)\s+(\d{8,})$/);
+        batch.update(db.collection('giftcards').doc(c.id),{desc:m[1],code:m[2]});
+      });
+      await batch.commit();
+      feitos+=chunk.length;
+    }
+    toast(feitos+' descricao(oes) corrigida(s)!');
+    scheduleCatalogoSync();
+  }catch(e){console.error(e);toast('Erro ao corrigir: '+e.message,true)}
+  btnFixDescCodigo.disabled=false;
+});
 
 function renderEstoque(){
   let list=[...cards];
