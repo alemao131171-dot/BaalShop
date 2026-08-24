@@ -4,11 +4,11 @@ import { useState, useEffect, useCallback, createContext, useContext } from "rea
  * BAALSHOP RECARGAS — Storefront + Firebase (baalshopgiftcards)
  *
  * Firestore collections (ver README.md para o schema completo):
- *   "catalogo" (leitura publica)      -> escrito pelo admin: {desc, tipo, categoria, valor, disponiveis}
- *   "pedidos"  (somente criacao publica) -> 1 documento por unidade: {desc, tipo, valor, clienteNome, clienteContato, status, criadoEm}
+ *   "catalogo" (leitura publica)      -> escrito pelo admin: {categoria, tipo, valor, disponiveis}
+ *   "pedidos"  (somente criacao publica) -> 1 documento por unidade: {categoria, tipo, valor, clienteNome, clienteContato, status, criadoEm}
  *
  * O admin BaalShop (GitHub Pages) sincroniza catalogo.disponiveis
- * contando giftcards onde usado==false agrupados por descricao (syncCatalogo()).
+ * contando giftcards onde usado==false agrupados por categoria (syncCatalogo()).
  * O admin tambem le "pedidos" na tela "Pedidos" e atribui o codigo (Atribuir Codigo),
  * marcando o giftcard como usado e preenchendo pedido.codigo.
  *
@@ -227,8 +227,9 @@ function Header() {
         </div>
         <nav style={S.nav}>
           <a style={S.nLnk} onClick={() => setPage("home")}>Início</a>
-          <a style={S.nLnk} href="#planos">Planos</a>
-          <a style={S.nLnk} href="#como">Como funciona</a>
+          <a style={S.nLnk} href="#planos" onClick={() => setPage("home")}>Planos</a>
+          <a style={S.nLnk} href="#como" onClick={() => setPage("home")}>Como funciona</a>
+          <a style={S.nLnk} onClick={() => setPage("download")}>Download</a>
         </nav>
         <button style={S.cBtn} onClick={() => setPage("checkout")}>
           🛒{count > 0 && <span style={S.cBdg}>{count}</span>}{total > 0 && <span style={S.cTot}>{fmt(total)}</span>}
@@ -344,6 +345,52 @@ function Faq() {
   );
 }
 
+function Download() {
+  return (
+    <section style={S.sec}>
+      <h2 style={S.secT}>Como baixar e ativar o UniTV</h2>
+      <p style={S.secS}>Depois de receber seu código, siga o passo a passo abaixo</p>
+
+      <div style={{ ...S.ckCd, marginBottom: 24 }}>
+        <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>1. Baixe o app</h3>
+        <p style={{ fontSize: 13, color: "#888", marginBottom: 18 }}>Para novos usuários — quem nunca instalou o UniTV no dispositivo</p>
+
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>📺 Link para TV</div>
+          <a href="https://app.unitv-plus.site/app/unitv_RS-NPWN.apk" target="_blank" rel="noreferrer" style={S.dlLink}>
+            Link original — sem propagandas
+          </a>
+          <a href="https://links.fileload.one/NPWN" target="_blank" rel="noreferrer" style={S.dlLink}>
+            Link reduzido — sem propagandas
+          </a>
+        </div>
+
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
+          <div style={S.dlCode}><div style={S.dlCodeLbl}>Código Downloader</div><div style={S.dlCodeVal}>4404302</div></div>
+          <div style={S.dlCode}><div style={S.dlCodeLbl}>Código NTDOWN</div><div style={S.dlCodeVal}>----</div></div>
+        </div>
+
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>📱 Link para celular (Android)</div>
+          <a href="http://mkdw.qrdldunitvss.com/download" target="_blank" rel="noreferrer" style={S.dlLink}>App Mobile</a>
+        </div>
+      </div>
+
+      <div style={S.ckCd}>
+        <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>2. Usuários antigos</h3>
+        <p style={{ fontSize: 14, color: "#666", lineHeight: 1.6, marginBottom: 16 }}>
+          Se você já instalou o UniTV antes (por outros meios ou já tem o app no dispositivo), não precisa baixar de novo —
+          nossa equipe te envia um login e senha criados no Painel da UniTV junto com seu código.
+        </p>
+        <div style={{ padding: 16, background: "#fffbf2", borderRadius: 12 }}>
+          <div style={{ fontSize: 13, marginBottom: 10, lineHeight: 1.5 }}><strong>Usuário novo</strong> = aquele que nunca instalou o UniTV no dispositivo e realiza um teste após a instalação.</div>
+          <div style={{ fontSize: 13, lineHeight: 1.5 }}><strong>Usuário antigo</strong> = alguém que já instalou o UniTV por outros meios ou já possui o aplicativo no dispositivo.</div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Checkout() {
   const { cart, updQty, rmItem, total, setPage, pay, setPay, plans, submitOrder } = use$();
   const [f, setF] = useState({ email: "", name: "", phone: "" });
@@ -446,7 +493,12 @@ function Footer() {
   );
 }
 
-function Pg() { const { page } = use$(); if (page === "checkout") return <Checkout />; return <><Hero /><Plans /><How /><Devs /><Faq /></>; }
+function Pg() {
+  const { page } = use$();
+  if (page === "checkout") return <Checkout />;
+  if (page === "download") return <Download />;
+  return <><Hero /><Plans /><How /><Devs /><Faq /></>;
+}
 
 function AppInner() {
   const { toast } = use$();
@@ -547,6 +599,10 @@ const S = {
   emB: { textAlign: "center", padding: "60px 20px", background: "#fff", borderRadius: 18, border: "1px solid #eee" },
   sucB: { textAlign: "center", padding: "40px 24px", background: "#fff", borderRadius: 18, border: "1px solid #eee" },
   errM: { background: "#fef2f2", border: "1px solid #fecaca", color: "#dc2626", padding: "10px 14px", borderRadius: 10, fontSize: 13, marginBottom: 12, textAlign: "center" },
+  dlLink: { display: "block", fontSize: 13, color: "#d97706", fontWeight: 600, textDecoration: "none", marginBottom: 8, wordBreak: "break-all" },
+  dlCode: { background: "#fffbf2", border: "1px solid #f0e4cc", borderRadius: 12, padding: "10px 16px", flex: "1 1 160px" },
+  dlCodeLbl: { fontSize: 12, color: "#888", marginBottom: 4 },
+  dlCodeVal: { fontSize: 16, fontWeight: 700, fontFamily: "monospace", color: "#1a1a2e" },
   ftr: { background: "#0f0a1e", color: "#ccc", padding: "40px 20px 0" },
   ftrIn: { maxWidth: 900, margin: "0 auto", display: "flex", flexWrap: "wrap", gap: 40, paddingBottom: 30 },
   fCol: { flex: "1 1 200px" },
