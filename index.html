@@ -118,6 +118,7 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
 .est-actions{display:flex;gap:3px}
 .ped-status{font-size:0.75rem;font-weight:600;padding:2px 8px;border-radius:4px;display:inline-block}
 .ped-status.pendente{background:rgba(243,156,18,0.15);color:#f39c12}
+.ped-status.pago{background:rgba(162,155,254,0.15);color:var(--accent)}
 .ped-status.atribuido{background:rgba(0,184,148,0.15);color:var(--trimestral)}
 .ped-status.cancelado{background:rgba(255,107,107,0.15);color:var(--danger)}
 .empty{text-align:center;padding:3rem 1rem;color:var(--text-muted);font-size:0.9rem}
@@ -426,6 +427,7 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
         <select id="pedidosFilterStatus" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:'Inter',sans-serif;font-size:0.85rem;padding:0.6rem 0.75rem;outline:none">
           <option value="todos">Todos</option>
           <option value="pendente">Pendentes</option>
+          <option value="pago">Pagos (sem estoque)</option>
           <option value="atribuido">Atribuidos</option>
           <option value="cancelado">Cancelados</option>
         </select>
@@ -1317,13 +1319,13 @@ function renderPedidos(){
   if(!list.length){pedidosBody.innerHTML='';pedidosEmpty.style.display='';return}
   pedidosEmpty.style.display='none';
 
-  const statusLabel={pendente:'Pendente',atribuido:'Atribuido',cancelado:'Cancelado'};
+  const statusLabel={pendente:'Pendente',pago:'Pago (sem estoque)',atribuido:'Atribuido',cancelado:'Cancelado'};
   pedidosBody.innerHTML=list.map(p=>{
     const dt=p.criadoEm?p.criadoEm.toDate().toLocaleDateString('pt-BR')+' '+p.criadoEm.toDate().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'-';
     const vl=p.valor!=null?'R$ '+fmtV(p.valor):'-';
     const st='<span class="ped-status '+p.status+'">'+(statusLabel[p.status]||p.status)+'</span>';
     let acts='-';
-    if(p.status==='pendente'){
+    if(p.status==='pendente'||p.status==='pago'){
       acts='<button class="btn-use" onclick="atribuirCodigo(\''+p.id+'\')">Atribuir Codigo</button><button class="btn-delete" onclick="cancelarPedido(\''+p.id+'\')">Cancelar</button>';
     }else if(p.status==='atribuido'){
       acts='<code style="font-size:0.78rem">'+esc(p.codigo||'')+'</code>';
@@ -1345,7 +1347,7 @@ function renderPedidos(){
 window.atribuirCodigo=async function(pedidoId){
   const pedido=pedidos.find(p=>p.id===pedidoId);
   if(!pedido)return;
-  if(pedido.status!=='pendente'){toast('Pedido nao esta pendente',true);return}
+  if(pedido.status!=='pendente'&&pedido.status!=='pago'){toast('Pedido nao esta pendente/pago',true);return}
   try{
     const snap=await db.collection('giftcards').where('categoria','==',pedido.categoria).where('usado','==',false).limit(1).get();
     if(snap.empty){toast('Nenhum codigo disponivel para este produto',true);return}

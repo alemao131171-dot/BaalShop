@@ -1,0 +1,137 @@
+import { criarPreferencia, buscarPagamento } from "./mercadoPago.js";
+import { firestoreQuery, firestorePatch, assignGiftcardTransactional } from "./firestoreRest.js";
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
+}
+
+async function handleCriarPagamento(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "JSON invalido" }, 400);
+  }
+  const grupoId = (body.grupoId || "").toString();
+  if (!grupoId) return json({ error: "grupoId obrigatorio" }, 400);
+
+  // Busca os pedidos direto no Firestore (nunca confia no total que o navegador manda).
+  const pedidos = await firestoreQuery(env, "pedidos", [["grupoId", grupoId], ["status", "pendente"]]);
+  if (!pedidos.length) return json({ error: "Pedido não encontrado ou já processado" }, 404);
+
+  // Agrupa itens iguais (mesma categoria+valor) para o resumo no Mercado Pago ficar limpo.
+  const porItem = {};
+  for (const p of pedidos) {
+    const key = `${p.categoria}__${p.valor}`;
+    if (!porItem[key]) porItem[key] = { title: p.categoria, unit_price: p.valor, quantity: 0 };
+    porItem[key].quantity++;
+  }
+  const items = Object.values(porItem);
+
+  const origin = new URL(request.url).origin;
+  let pref;
+  try {
+    pref = await criarPreferencia(env, {
+      items,
+      payerEmail: pedidos[0].clienteEmail || undefined,
+      externalReference: grupoId,
+      notificationUrl: `${origin}/api/mp-webhook`,
+      backUrls: {
+        success: `${origin}/?checkout=sucesso`,
+        pending: `${origin}/?checkout=pendente`,
+        failure: `${origin}/?checkout=falhou`,
+      },
+    });
+  } catch (e) {
+    return json({ error: e.message }, 502);
+  }
+
+  const isTest = (env.MP_ACCESS_TOKEN || "").startsWith("TEST-");
+  const url = isTest ? pref.sandbox_init_point : pref.init_point;
+  return json({ url });
+}
+
+async function handleWebhook(request, env) {
+  const url = new URL(request.url);
+  let paymentId = url.searchParams.get("data.id") || url.searchParams.get("id");
+  let type = url.searchParams.get("type") || url.searchParams.get("topic");
+
+  if (request.method === "POST") {
+    try {
+      const body = await request.json();
+      paymentId = paymentId || body?.data?.id;
+      type = type || body?.type;
+    } catch {
+      // corpo vazio/nao-JSON — segue só com os query params, se tiver
+    }
+  }
+
+  // Só nos interessa notificacao de pagamento; outros tipos (merchant_order etc.) so confirmamos recebimento.
+  if (type !== "payment" || !paymentId) return new Response("ok", { status: 200 });
+
+  let pagamento;
+  try {
+    pagamento = await buscarPagamento(env, paymentId);
+  } catch (e) {
+    console.error("Erro ao consultar pagamento:", e.message);
+    return new Response("erro ao consultar pagamento", { status: 502 });
+  }
+
+  if (pagamento.status !== "approved") return new Response("ok", { status: 200 });
+
+  const grupoId = pagamento.external_reference;
+  if (!grupoId) return new Response("ok", { status: 200 });
+
+  // Idempotente: se o webhook chegar mais de uma vez, na segunda chamada os pedidos
+  // ja nao estarao mais "pendente" e a query volta vazia — nada e refeito.
+  const pedidos = await firestoreQuery(env, "pedidos", [["grupoId", grupoId], ["status", "pendente"]]);
+  if (!pedidos.length) return new Response("ok", { status: 200 });
+
+  const totalEsperado = pedidos.reduce((s, p) => s + (p.valor || 0), 0);
+  const valorPago = pagamento.transaction_amount || 0;
+  const valorBate = Math.abs(totalEsperado - valorPago) < 0.01;
+
+  const agora = new Date().toISOString();
+  for (const pedido of pedidos) {
+    if (!valorBate) {
+      // Valor pago nao confere com o esperado — nao arrisca atribuir codigo sozinho,
+      // deixa "pago" para o admin conferir manualmente.
+      await firestorePatch(env, "pedidos", pedido.id, { status: "pago", mpPaymentId: String(paymentId), pagoEm: agora });
+      continue;
+    }
+    try {
+      const resultado = await assignGiftcardTransactional(env, pedido.categoria, pedido, {
+        mpPaymentId: String(paymentId),
+        pagoEm: agora,
+      });
+      if (!resultado || resultado.conflito) {
+        // Sem estoque disponivel (ou corrida com outro pagamento) — marca como pago
+        // para o admin atribuir manualmente assim que houver codigo.
+        await firestorePatch(env, "pedidos", pedido.id, { status: "pago", mpPaymentId: String(paymentId), pagoEm: agora });
+      }
+    } catch (e) {
+      console.error("Erro ao atribuir codigo automaticamente:", e.message);
+      await firestorePatch(env, "pedidos", pedido.id, { status: "pago", mpPaymentId: String(paymentId), pagoEm: agora }).catch(() => {});
+    }
+  }
+
+  return new Response("ok", { status: 200 });
+}
+
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    try {
+      if (url.pathname === "/api/criar-pagamento" && request.method === "POST") {
+        return await handleCriarPagamento(request, env);
+      }
+      if (url.pathname === "/api/mp-webhook") {
+        return await handleWebhook(request, env);
+      }
+    } catch (e) {
+      console.error("Erro no worker:", e);
+      return json({ error: "Erro interno" }, 500);
+    }
+    return env.ASSETS.fetch(request);
+  },
+};

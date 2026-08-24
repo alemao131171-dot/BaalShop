@@ -1,7 +1,4 @@
 import { useState, useEffect, useCallback, createContext, useContext } from "react";
-import QRCode from "qrcode";
-import { buildPixPayload } from "./pix.js";
-import { PIX_CONFIG } from "./pixConfig.js";
 
 /*
  * BAALSHOP RECARGAS — Storefront + Firebase (baalshopgiftcards)
@@ -197,12 +194,27 @@ function Prov({ children }) {
   const meusPedidos = useMeusPedidos(db, user?.uid);
   const [cart, setCart] = useState([]);
   const [page, setPage] = useState("home");
-  const [pay, setPay] = useState("pix");
   const [toast, setToast] = useState(null);
 
   const plans = raw.length > 0 ? raw.map(norm) : FALLBACK.map(norm);
 
   const flash = useCallback((m) => { setToast(m); setTimeout(() => setToast(null), 2500); }, []);
+
+  // Detecta a volta do Checkout Pro do Mercado Pago (back_urls) e leva o cliente pra
+  // "Minha Conta", onde o pedido/codigo atualiza sozinho assim que o webhook processar.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const checkout = params.get("checkout");
+    if (!checkout) return;
+    const msgs = {
+      sucesso: "✅ Pagamento em confirmação! Seu código aparece aqui em instantes.",
+      pendente: "⏳ Pagamento pendente. Assim que for aprovado, o código aparece aqui.",
+      falhou: "❌ Pagamento não foi aprovado. Você pode tentar de novo.",
+    };
+    flash(msgs[checkout] || "Voltando do pagamento...");
+    setPage("conta");
+    window.history.replaceState({}, "", window.location.pathname);
+  }, [flash]);
 
   const addToCart = useCallback((plan, q = 1) => {
     if (plan.disponivel <= 0) { flash("❌ Produto esgotado!"); return; }
@@ -255,7 +267,6 @@ function Prov({ children }) {
           clienteContato,
           clienteEmail: cli.email || null,
           clienteTelefone: cli.phone || null,
-          formaPagamentoPreferida: pay,
           status: "pendente",
           origem: "storefront",
           grupoId,
@@ -267,7 +278,21 @@ function Prov({ children }) {
     if (count > 400) throw new Error("Pedido muito grande, reduza a quantidade.");
     await batch.commit();
     return grupoId;
-  }, [db, cart, pay, user]);
+  }, [db, cart, user]);
+
+  // Cria o pagamento no Mercado Pago (Checkout Pro) para um grupo de pedidos ja gravados
+  // e devolve a URL de redirecionamento. O total e recalculado no servidor (Worker) a
+  // partir do Firestore — nunca confia no total calculado so no navegador.
+  const criarPagamento = useCallback(async (grupoId) => {
+    const res = await fetch("/api/criar-pagamento", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ grupoId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.url) throw new Error(data.error || "Não foi possível iniciar o pagamento. Tente novamente.");
+    return data.url;
+  }, []);
 
   const signup = useCallback(async ({ email, password, nome, telefone }) => {
     const auth = await getAuthSDK();
@@ -302,7 +327,7 @@ function Prov({ children }) {
 
   return (
     <Ctx.Provider value={{
-      plans, cart, addToCart, updQty, rmItem, total, count, page, setPage, pay, setPay, toast, loading, submitOrder,
+      plans, cart, addToCart, updQty, rmItem, total, count, page, setPage, toast, loading, submitOrder, criarPagamento,
       user, authLoading, perfil, meusPedidos, signup, login, logout, resetPassword,
     }}>
       {children}
@@ -580,8 +605,8 @@ function Conta() {
     </div></div>
   );
 
-  const statusLabel = { pendente: "Pendente", atribuido: "Código disponível", cancelado: "Cancelado" };
-  const statusColor = { pendente: "#f59e0b", atribuido: "#16a34a", cancelado: "#dc2626" };
+  const statusLabel = { pendente: "Aguardando pagamento", pago: "Pago — preparando código", atribuido: "Código disponível", cancelado: "Cancelado" };
+  const statusColor = { pendente: "#f59e0b", pago: "#2563eb", atribuido: "#16a34a", cancelado: "#dc2626" };
 
   return (
     <div style={S.ckC}>
@@ -609,6 +634,7 @@ function Conta() {
             </div>
           )}
           {p.status === "pendente" && <div style={{ fontSize: 12, color: "#f59e0b" }}>Aguardando confirmação do pagamento</div>}
+          {p.status === "pago" && <div style={{ fontSize: 12, color: "#2563eb" }}>Pagamento confirmado — nossa equipe está preparando seu código</div>}
           {p.status === "cancelado" && <div style={{ fontSize: 12, color: "#dc2626" }}>Pedido cancelado</div>}
         </div>
       ))}
@@ -616,45 +642,13 @@ function Conta() {
   );
 }
 
-function PixQrBlock({ payload }) {
-  const [dataUrl, setDataUrl] = useState(null);
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    setDataUrl(null);
-    QRCode.toDataURL(payload, { margin: 1, width: 220 })
-      .then((url) => { if (active) setDataUrl(url); })
-      .catch(() => {});
-    return () => { active = false; };
-  }, [payload]);
-
-  const copiar = () => {
-    navigator.clipboard.writeText(payload).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
-
-  return (
-    <div style={{ textAlign: "center", marginBottom: 20 }}>
-      {dataUrl
-        ? <img src={dataUrl} alt="QR Code Pix" style={{ width: 200, height: 200, borderRadius: 12, border: "1px solid #eee" }} />
-        : <div style={{ width: 200, height: 200, margin: "0 auto", background: "#f3f3f3", borderRadius: 12 }} />}
-      <p style={{ fontSize: 13, color: "#888", margin: "10px 0" }}>Escaneie com o app do seu banco ou copie o código Pix abaixo</p>
-      <button type="button" onClick={copiar} style={{ background: "#d97706", color: "#fff", border: "none", borderRadius: 10, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-        {copied ? "✓ Copiado!" : "📋 Copiar código Pix"}
-      </button>
-    </div>
-  );
-}
-
 function Checkout() {
-  const { cart, updQty, rmItem, total, setPage, pay, setPay, plans, submitOrder, user, perfil } = use$();
+  const { cart, updQty, rmItem, total, setPage, plans, submitOrder, criarPagamento, user, perfil } = use$();
   const [f, setF] = useState({ email: "", name: "", phone: "" });
   const [step, setSt] = useState("cart");
   const [busy, setBusy] = useState(false);
   const [oid, setOid] = useState(null);
+  const [payUrl, setPayUrl] = useState(null);
   const [err, setErr] = useState(null);
   const up = (k, v) => setF(p => ({ ...p, [k]: v }));
   const ok = f.email && f.name;
@@ -674,34 +668,35 @@ function Checkout() {
   );
 
   if (step === "done") {
-    const pixAtivo = pay === "pix" && !!PIX_CONFIG.chave && !!PIX_CONFIG.cidade;
-    const pixPayload = pixAtivo ? buildPixPayload({ chave: PIX_CONFIG.chave, nome: PIX_CONFIG.nome, cidade: PIX_CONFIG.cidade, valor: total, txid: oid }) : null;
     return (
       <div style={S.ckC}><div style={S.sucB}>
-        <div style={{ fontSize: 56, marginBottom: 8 }}>✅</div>
-        <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>Pedido registrado!</h2>
-        {pixAtivo ? (
-          <>
-            <p style={{ color: "#666", lineHeight: 1.6, marginBottom: 20 }}>
-              Pague agora pelo Pix abaixo. Depois de confirmarmos o pagamento, enviamos o código para <strong style={{ color: "#d97706" }}>{f.phone || f.email}</strong>.
-            </p>
-            <PixQrBlock payload={pixPayload} />
-          </>
-        ) : (
-          <p style={{ color: "#666", lineHeight: 1.6, marginBottom: 24 }}>Em breve entraremos em contato pelo<br /><strong style={{ color: "#d97706" }}>{f.phone || f.email}</strong><br />para combinar o pagamento e enviar o código.</p>
-        )}
-        <div style={S.sumB}>
-          <div style={S.ordN}>Pedido #{oid ? oid.slice(0, 8) : "..."}</div>
-          {cart.map(i => <div key={i.plan.id} style={S.sumL}><span>{i.plan.nome} × {i.qty}</span><span style={{ fontWeight: 600 }}>{fmt(i.plan.preco * i.qty)}</span></div>)}
-          <div style={S.sumL}><span style={{ fontSize: 12, color: "#999" }}>Preferência: {pay === "pix" ? "Pix" : "Cartão"}</span></div>
-          <div style={{ ...S.sumL, borderTop: "2px solid #e5e5e5", paddingTop: 10, marginTop: 6, fontWeight: 700, fontSize: 16 }}><span>Total estimado</span><span style={{ color: "#d97706" }}>{fmt(total)}</span></div>
-        </div>
-        <button style={S.mainBtn} onClick={() => setPage("home")}>Voltar ao início</button>
+        <div style={{ fontSize: 56, marginBottom: 8 }}>💳</div>
+        <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>Redirecionando para o pagamento...</h2>
+        <p style={{ color: "#666", lineHeight: 1.6, marginBottom: 24 }}>
+          Pedido #{oid ? oid.slice(0, 8) : "..."} registrado. Você vai ser levado ao Mercado Pago para pagar via Pix, cartão ou boleto — o código é liberado automaticamente aqui em "Minha Conta" assim que o pagamento for confirmado.
+        </p>
+        {payUrl && <a href={payUrl} style={{ ...S.mainBtn, display: "block", textDecoration: "none", boxSizing: "border-box" }}>Ir para o pagamento →</a>}
       </div></div>
     );
   }
 
-  const doSubmit = async () => { setBusy(true); setErr(null); try { const id = await submitOrder(f); setOid(id); setSt("done"); } catch (e) { setErr(e.message); } finally { setBusy(false); } };
+  const doSubmit = async () => {
+    setBusy(true); setErr(null);
+    try {
+      // Reaproveita o grupoId se essa for uma nova tentativa (ex: a criacao do pagamento
+      // falhou antes) para nao duplicar os pedidos já gravados.
+      const grupoId = oid || await submitOrder(f);
+      if (!oid) setOid(grupoId);
+      const url = await criarPagamento(grupoId);
+      setPayUrl(url);
+      setSt("done");
+      window.location.href = url;
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div style={S.ckC}>
@@ -739,9 +734,6 @@ function Checkout() {
             <p style={{ color: "#888", fontSize: 14, marginBottom: 20 }}>Confirme seus dados de contato para este pedido</p>
             <div style={S.fRow}><label style={S.lab}>E-mail</label><input style={{ ...S.inp, background: "#f7f7f7", color: "#888" }} value={f.email} disabled /></div>
             <div style={S.fFlx}><div style={S.fHf}><label style={S.lab}>Nome completo *</label><input style={S.inp} placeholder="João da Silva" value={f.name} onChange={e => up("name", e.target.value)} /></div><div style={S.fHf}><label style={S.lab}>WhatsApp</label><input style={S.inp} placeholder="(00) 00000-0000" value={f.phone} onChange={e => up("phone", e.target.value)} /></div></div>
-            <div style={S.fRow}><label style={S.lab}>Como prefere pagar?</label>
-              <div style={S.ptSm}><button style={{ ...S.ptBSm, ...(pay === "pix" ? S.ptASm : {}) }} onClick={() => setPay("pix")}>📱 Pix</button><button style={{ ...S.ptBSm, ...(pay === "card" ? S.ptASm : {}) }} onClick={() => setPay("card")}>💳 Cartão</button></div>
-            </div>
             <button style={{ ...S.mainBtn, opacity: ok ? 1 : .45 }} disabled={!ok} onClick={() => setSt("confirm")}>Revisar pedido →</button>
           </>
         )}
@@ -754,11 +746,11 @@ function Checkout() {
           <div style={{ ...S.sumL, borderTop: "2px solid #eee", paddingTop: 10, marginTop: 6, fontWeight: 700 }}><span>Total estimado</span><span style={{ color: "#d97706", fontSize: 20 }}>{fmt(total)}</span></div>
         </div>
         <div style={S.payI}><div style={{ fontSize: 14, color: "#666", lineHeight: 1.6 }}>
-          Ao confirmar, seu pedido fica registrado como <strong>pendente</strong>. Nossa equipe vai falar com você em <strong>{f.phone || f.email}</strong> para combinar o pagamento via {pay === "pix" ? "Pix" : "cartão"} e, depois de confirmado, enviar o código de ativação.
+          Ao confirmar, você será levado ao <strong>Mercado Pago</strong> para pagar via Pix, cartão ou boleto. Assim que o pagamento for aprovado, o código de ativação é liberado automaticamente aqui em "Minha Conta".
         </div></div>
         {err && <div style={S.errM}>{err}</div>}
         <button style={S.mainBtn} onClick={doSubmit} disabled={busy || !sv}>
-          {busy ? "⏳ Enviando..." : "Confirmar pedido"}
+          {busy ? "⏳ Enviando..." : "Ir para o pagamento →"}
         </button>
       </div>}
     </div>
