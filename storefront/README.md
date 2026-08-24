@@ -5,14 +5,17 @@ Site público de vendas, separado do admin (`index.html` no GitHub Pages). Este 
 ## Como as duas partes se conectam (Firestore)
 
 ```
-storefront (Cloudflare Pages, público, sem login)
-   lê   -> catalogo   (contagem de disponíveis, sem código)
-   cria -> pedidos    (1 documento por unidade, status "pendente")
+storefront (Cloudflare Pages, público — mas comprar exige criar conta)
+   lê   -> catalogo        (contagem de disponíveis, sem código)
+   cria -> pedidos          (1 documento por unidade, vinculado ao clienteUid)
+   lê/escreve -> clientesPortal/{uid}  (perfil do próprio cliente logado)
 
-admin (GitHub Pages, exige login)
+admin (GitHub Pages, exige login de funcionário)
    escreve -> catalogo   (syncCatalogo(), roda sozinho a cada mudança em giftcards)
    lê/edita -> pedidos   (tela "Pedidos": Atribuir Código / Cancelar)
 ```
+
+O login do cliente usa o **mesmo Firebase Auth** do admin, mas são contas diferentes: uma conta só é "admin" se tiver um documento em `/users/{uid}` (criado pela tela "Usuarios"); contas criadas pelo storefront nunca ganham esse documento. As regras do Firestore usam essa distinção (`isAdmin()`) para impedir que um cliente logado veja dados de outros clientes ou de giftcards de outra pessoa.
 
 ### Coleção `catalogo` (leitura pública, sem código nenhum)
 
@@ -28,7 +31,7 @@ Escrita automaticamente pelo admin (`syncCatalogo()` em `index.html`). Um docume
 
 O storefront **nunca** vê `code` — essa coleção não guarda códigos.
 
-### Coleção `pedidos` (criação pública, sem leitura/edição pública)
+### Coleção `pedidos` (criação só por cliente logado; leitura restrita ao próprio pedido)
 
 O storefront cria **um documento por unidade comprada** (se o cliente pede 2x o mesmo plano, são 2 documentos, ligados por `grupoId`). Isso é o que permite ao admin usar "Atribuir Código" (que busca 1 giftcard livre por `categoria` e faz a atribuição via transação).
 
@@ -37,6 +40,7 @@ O storefront cria **um documento por unidade comprada** (se o cliente pede 2x o 
 | `categoria`                | string    | igual ao `catalogo.categoria` do item comprado |
 | `tipo`                     | string    | copiado do catálogo                           |
 | `valor`                    | number    | preço no momento da compra                    |
+| `clienteUid`               | string    | uid do Firebase Auth do cliente logado que comprou |
 | `clienteNome`               | string    | nome informado no formulário                  |
 | `clienteContato`           | string    | WhatsApp (preferência) ou e-mail              |
 | `clienteEmail` / `clienteTelefone` | string? | campos separados, para referência        |
@@ -47,36 +51,32 @@ O storefront cria **um documento por unidade comprada** (se o cliente pede 2x o 
 | `criadoEm`                 | timestamp | `serverTimestamp()`                           |
 | `codigo`, `giftcardId`, `atribuidoEm`, `atribuidoPor` | — | preenchidos pelo admin ao atribuir |
 
+O cliente vê seus próprios pedidos (e o `codigo` assim que `status` vira `atribuido`) na página **Minha Conta** do storefront, que consulta `pedidos` filtrando por `clienteUid == auth.currentUser.uid`.
+
+### Coleção `clientesPortal/{uid}` (perfil do cliente do storefront)
+
+Criada no cadastro (signup) do cliente. Id do documento = uid do Firebase Auth.
+
+| campo      | tipo      | descrição                          |
+|------------|-----------|--------------------------------------|
+| `nome`     | string    | nome informado no cadastro           |
+| `telefone` | string?   | WhatsApp informado no cadastro       |
+| `email`    | string    | e-mail da conta (igual ao Auth)      |
+| `criadoEm` | timestamp | `serverTimestamp()`                  |
+
+Só o próprio cliente lê/escreve o seu; o admin pode ler (não escrever) para eventual suporte.
+
 ## Regras de segurança do Firestore (obrigatório antes de publicar)
 
-O projeto Firebase precisa permitir **leitura pública** de `catalogo` e **criação pública** (sem leitura/edição) de `pedidos`, sem abrir mais nada. Isso é feito no **Firebase Console → Firestore Database → Regras** (não uso o Firebase CLI aqui porque não tenho acesso às credenciais do projeto). Adicione ao lado das regras já existentes para `giftcards`, `users`, `clientes`, `categorias`, `config`:
+O conteúdo completo e atualizado das regras está em [`firestore.rules`](firestore.rules) — copie o arquivo inteiro e cole no **Firebase Console → Firestore Database → Regras → Publicar** (não uso o Firebase CLI aqui porque não tenho acesso às credenciais do projeto).
 
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
+Pontos-chave dessa versão:
+- `isAdmin()` diferencia funcionário (tem doc em `/users/{uid}`) de cliente comum — **sem essa distinção, qualquer cliente logado conseguiria ler/editar os dados de todo mundo**, já que login de cliente e de admin usam o mesmo Firebase Auth.
+- `catalogo`: leitura pública, escrita só admin.
+- `pedidos`: só o cliente dono (`clienteUid`) ou o admin conseguem ler; criar exige estar logado E o `clienteUid` do documento ser o do próprio usuário (não dá pra criar pedido em nome de outro uid); editar/apagar é só admin.
+- `clientesPortal/{uid}`: só o próprio cliente lê/escreve o seu; admin só lê.
 
-    // ... regras existentes de giftcards/users/clientes/categorias/config (exigem login) ...
-
-    match /catalogo/{doc} {
-      allow read: if true;
-      allow write: if request.auth != null; // só o admin logado escreve
-    }
-
-    match /pedidos/{doc} {
-      allow read, update, delete: if request.auth != null; // só o admin logado
-      allow create: if request.auth == null
-        && request.resource.data.status == 'pendente'
-        && request.resource.data.origem == 'storefront'
-        && request.resource.data.categoria is string
-        && request.resource.data.clienteNome is string
-        && request.resource.data.valor is number;
-    }
-  }
-}
-```
-
-Isso garante que qualquer visitante só consegue **criar** um pedido pendente (não pode ler pedidos de outras pessoas, não pode editar status, não pode ver códigos). **Sem essa regra publicada, o site em produção não vai conseguir carregar o catálogo nem enviar pedidos** (vai ficar preso em "Conectando ao estoque..." ou dar erro ao confirmar).
+Toda vez que este arquivo mudar (por uma nova funcionalidade), é preciso republicar manualmente no Firebase Console — eu não tenho como aplicar isso automaticamente. **Sem a regra publicada, o site trava em "Conectando ao estoque...", no cadastro, ou no envio do pedido.**
 
 ## Rodando localmente
 
@@ -131,16 +131,18 @@ Na primeira vez, o Wrangler pergunta se quer criar o projeto `baalshop-recargas`
 
 ## Checklist antes de divulgar o link
 
-- [ ] Regras do Firestore acima aplicadas no Firebase Console
+- [ ] Regras do Firestore (`firestore.rules`) aplicadas no Firebase Console
 - [ ] Pelo menos um giftcard cadastrado e **não usado** no admin, para o catálogo mostrar algo "disponível" (senão tudo aparece "Esgotado")
-- [ ] Testar o fluxo completo uma vez: fazer um pedido de teste no storefront → confirmar que ele aparece em admin → **Pedidos** → **Atribuir Código** funciona
+- [ ] `src/pixConfig.js` preenchido com a chave/nome/cidade Pix reais (senão o checkout não mostra QR Code)
+- [ ] Testar o fluxo completo uma vez: criar conta no storefront → fazer um pedido de teste → confirmar que ele aparece em admin → **Pedidos** → **Atribuir Código** funciona → o código aparece em **Minha Conta** no storefront
 - [ ] Trocar os links de WhatsApp/e-mail no rodapé (`src/App.jsx`, componente `Footer`) para os reais
 - [ ] Configurar domínio próprio em Cloudflare Pages, se for usar um (ex: `recargas.baalshop.com.br`)
 
-## Limitações conhecidas (por decisão de escopo: "só formulário")
+## Limitações conhecidas (por decisão de escopo)
 
-- **Não há envio automático de código por e-mail/WhatsApp.** O pedido fica "pendente"; a equipe vê o código em admin → Pedidos → Atribuir Código e precisa mandar manualmente para o cliente.
-- **Não há gateway de pagamento real.** "Pix" e "Cartão" no formulário são só a preferência do cliente; o pagamento é combinado por fora (WhatsApp) antes da equipe atribuir o código.
+- **Login é obrigatório para comprar.** O cliente cria conta (e-mail+senha, mesmo Firebase Auth do admin) antes de finalizar o pedido; isso é o que permite ele ver o código depois em "Minha Conta".
+- **Não há envio automático de código por e-mail/WhatsApp.** O pedido fica "pendente"; a equipe vê o código em admin → Pedidos → Atribuir Código, e o cliente passa a ver o código sozinho em "Minha Conta" (não precisa mais de contato manual, mas ainda não há notificação push/e-mail avisando que ficou pronto).
+- **QR Code Pix é estático com valor fixo, sem gateway/webhook.** Não há confirmação automática de pagamento — a equipe confere o extrato do Mercado Pago e só depois clica "Atribuir Código" no admin.
 - **Sem reserva de estoque.** Um pedido "pendente" não trava o giftcard — se dois clientes pedirem o mesmo produto quase ao mesmo tempo e só houver 1 disponível, o admin só conseguirá atribuir código a um deles (o outro pedido ficará pendente até repor estoque).
 
-Se algum dia quiser evoluir para envio automático de e-mail ou um gateway de pagamento real (Mercado Pago, Pix automático etc.), isso exigiria uma Cloud Function ou backend adicional — não está implementado aqui.
+Se algum dia quiser evoluir para envio automático de e-mail/push quando o código for liberado, ou um gateway de pagamento real com confirmação automática (Mercado Pago, Pix automático etc.), isso exigiria uma Cloud Function ou backend adicional — não está implementado aqui.

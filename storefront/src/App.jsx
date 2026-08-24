@@ -59,11 +59,70 @@ function getDB() {
   return window._fbDbPromise;
 }
 
+function getAuthSDK() {
+  if (window.firebase && window.firebase.apps && window.firebase.apps.length && window.firebase.auth) {
+    return Promise.resolve(window.firebase.auth());
+  }
+  if (window._fbAuthPromise) return window._fbAuthPromise;
+  window._fbAuthPromise = (async () => {
+    const b = `https://www.gstatic.com/firebasejs/${FB_VER}`;
+    await loadJS(`${b}/firebase-app-compat.js`);
+    await loadJS(`${b}/firebase-auth-compat.js`);
+    if (!window.firebase.apps.length) window.firebase.initializeApp(FB_CFG);
+    return window.firebase.auth();
+  })();
+  return window._fbAuthPromise;
+}
+
 // ─── Hooks ────────────────────────────────────────────────────
 function useFirestore() {
   const [db, setDb] = useState(null);
   useEffect(() => { getDB().then(setDb).catch(console.error); }, []);
   return db;
+}
+
+function useAuthState() {
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  useEffect(() => {
+    let unsub = () => {};
+    getAuthSDK().then((auth) => {
+      unsub = auth.onAuthStateChanged((u) => { setUser(u); setAuthLoading(false); });
+    }).catch(() => setAuthLoading(false));
+    return () => unsub();
+  }, []);
+  return { user, authLoading };
+}
+
+function usePerfil(db, uid) {
+  const [perfil, setPerfil] = useState(null);
+  useEffect(() => {
+    if (!db || !uid) { setPerfil(null); return; }
+    const unsub = db.collection("clientesPortal").doc(uid).onSnapshot(
+      (doc) => setPerfil(doc.exists ? doc.data() : null),
+      () => setPerfil(null)
+    );
+    return () => unsub();
+  }, [db, uid]);
+  return perfil;
+}
+
+function useMeusPedidos(db, uid) {
+  const [pedidos, setPedidos] = useState([]);
+  useEffect(() => {
+    if (!db || !uid) { setPedidos([]); return; }
+    // Ordenamos no cliente (nao no Firestore) para nao depender de um indice composto.
+    const unsub = db.collection("pedidos").where("clienteUid", "==", uid).onSnapshot(
+      (snap) => {
+        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        list.sort((a, b) => (b.criadoEm?.seconds || 0) - (a.criadoEm?.seconds || 0));
+        setPedidos(list);
+      },
+      () => setPedidos([])
+    );
+    return () => unsub();
+  }, [db, uid]);
+  return pedidos;
 }
 
 function useCatalogo(db) {
@@ -133,6 +192,9 @@ const Ctx = createContext();
 function Prov({ children }) {
   const db = useFirestore();
   const { items: raw, loading } = useCatalogo(db);
+  const { user, authLoading } = useAuthState();
+  const perfil = usePerfil(db, user?.uid);
+  const meusPedidos = useMeusPedidos(db, user?.uid);
   const [cart, setCart] = useState([]);
   const [page, setPage] = useState("home");
   const [pay, setPay] = useState("pix");
@@ -170,9 +232,12 @@ function Prov({ children }) {
   const count = cart.reduce((s, i) => s + i.qty, 0);
 
   // Cria 1 documento de pedido por unidade (compativel com o admin: Pedidos > Atribuir Codigo
-  // busca giftcards por igualdade exata de `desc`). Um grupoId liga os itens do mesmo carrinho.
+  // busca giftcards por igualdade exata de `categoria`). Um grupoId liga os itens do mesmo carrinho.
+  // Login e obrigatorio: clienteUid identifica o pedido como do cliente logado, tanto para a
+  // regra do Firestore quanto para ele conseguir ver o pedido/codigo em "Minha Conta".
   const submitOrder = useCallback(async (cli) => {
     if (!db) throw new Error("Não foi possível conectar ao servidor. Tente novamente em instantes.");
+    if (!user) throw new Error("Faça login para continuar.");
     if (cart.length === 0) throw new Error("Carrinho vazio.");
     const grupoId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const clienteContato = cli.phone || cli.email;
@@ -185,6 +250,7 @@ function Prov({ children }) {
           categoria: item.plan.categoriaRaw,
           tipo: item.plan.tipo,
           valor: item.plan.preco,
+          clienteUid: user.uid,
           clienteNome: cli.name,
           clienteContato,
           clienteEmail: cli.email || null,
@@ -201,10 +267,44 @@ function Prov({ children }) {
     if (count > 400) throw new Error("Pedido muito grande, reduza a quantidade.");
     await batch.commit();
     return grupoId;
-  }, [db, cart, pay]);
+  }, [db, cart, pay, user]);
+
+  const signup = useCallback(async ({ email, password, nome, telefone }) => {
+    const auth = await getAuthSDK();
+    const cred = await auth.createUserWithEmailAndPassword(email, password);
+    if (nome) await cred.user.updateProfile({ displayName: nome });
+    if (db) {
+      await db.collection("clientesPortal").doc(cred.user.uid).set({
+        nome: nome || "",
+        telefone: telefone || "",
+        email,
+        criadoEm: window.firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    return cred.user;
+  }, [db]);
+
+  const login = useCallback(async ({ email, password }) => {
+    const auth = await getAuthSDK();
+    await auth.signInWithEmailAndPassword(email, password);
+  }, []);
+
+  const logout = useCallback(async () => {
+    const auth = await getAuthSDK();
+    await auth.signOut();
+    setPage("home");
+  }, []);
+
+  const resetPassword = useCallback(async (email) => {
+    const auth = await getAuthSDK();
+    await auth.sendPasswordResetEmail(email);
+  }, []);
 
   return (
-    <Ctx.Provider value={{ plans, cart, addToCart, updQty, rmItem, total, count, page, setPage, pay, setPay, toast, loading, submitOrder }}>
+    <Ctx.Provider value={{
+      plans, cart, addToCart, updQty, rmItem, total, count, page, setPage, pay, setPay, toast, loading, submitOrder,
+      user, authLoading, perfil, meusPedidos, signup, login, logout, resetPassword,
+    }}>
       {children}
     </Ctx.Provider>
   );
@@ -220,7 +320,7 @@ function Stock({ qty }) {
 }
 
 function Header() {
-  const { count, total, setPage } = use$();
+  const { count, total, setPage, user, authLoading } = use$();
   return (
     <header style={S.hdr}>
       <div style={S.hdrIn}>
@@ -233,6 +333,7 @@ function Header() {
           <a style={S.nLnk} href="#planos" onClick={() => setPage("home")}>Planos</a>
           <a style={S.nLnk} href="#como" onClick={() => setPage("home")}>Como funciona</a>
           <a style={S.nLnk} onClick={() => setPage("download")}>Download</a>
+          {!authLoading && <a style={S.nLnk} onClick={() => setPage("conta")}>{user ? "Minha Conta" : "Entrar"}</a>}
         </nav>
         <button style={S.cBtn} onClick={() => setPage("checkout")}>
           🛒{count > 0 && <span style={S.cBdg}>{count}</span>}{total > 0 && <span style={S.cTot}>{fmt(total)}</span>}
@@ -394,6 +495,127 @@ function Download() {
   );
 }
 
+function AuthForms({ onDone }) {
+  const { signup, login, resetPassword } = use$();
+  const [mode, setMode] = useState("login");
+  const [f, setF] = useState({ email: "", password: "", nome: "", telefone: "" });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const up = (k, v) => setF((p) => ({ ...p, [k]: v }));
+
+  const errMap = {
+    "auth/email-already-in-use": "Este e-mail já tem uma conta. Tente entrar.",
+    "auth/invalid-email": "E-mail inválido",
+    "auth/weak-password": "Senha deve ter pelo menos 6 caracteres",
+    "auth/user-not-found": "Conta não encontrada",
+    "auth/wrong-password": "Senha incorreta",
+    "auth/invalid-credential": "E-mail ou senha incorretos",
+    "auth/too-many-requests": "Muitas tentativas — aguarde e tente de novo",
+  };
+
+  const submit = async () => {
+    setErr(null); setMsg(null);
+    if (!f.email || !f.password) { setErr("Preencha e-mail e senha"); return; }
+    if (mode === "signup" && !f.nome) { setErr("Preencha seu nome"); return; }
+    setBusy(true);
+    try {
+      if (mode === "signup") await signup(f);
+      else await login(f);
+      onDone && onDone();
+    } catch (e) {
+      setErr(errMap[e.code] || e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const esqueceuSenha = async () => {
+    setErr(null); setMsg(null);
+    if (!f.email) { setErr("Digite seu e-mail acima para redefinir a senha"); return; }
+    try {
+      await resetPassword(f.email);
+      setMsg("E-mail de redefinição enviado! Confira sua caixa de entrada.");
+    } catch {
+      setErr("Erro ao enviar e-mail de redefinição");
+    }
+  };
+
+  return (
+    <div>
+      <div style={S.ptSm}>
+        <button style={{ ...S.ptBSm, ...(mode === "login" ? S.ptASm : {}) }} onClick={() => { setMode("login"); setErr(null); setMsg(null); }}>Entrar</button>
+        <button style={{ ...S.ptBSm, ...(mode === "signup" ? S.ptASm : {}) }} onClick={() => { setMode("signup"); setErr(null); setMsg(null); }}>Criar conta</button>
+      </div>
+      {mode === "signup" && (
+        <div style={S.fRow}><label style={S.lab}>Nome completo *</label><input style={S.inp} value={f.nome} onChange={(e) => up("nome", e.target.value)} placeholder="João da Silva" /></div>
+      )}
+      <div style={S.fRow}><label style={S.lab}>E-mail *</label><input style={S.inp} type="email" value={f.email} onChange={(e) => up("email", e.target.value)} placeholder="seu@email.com" /></div>
+      {mode === "signup" && (
+        <div style={S.fRow}><label style={S.lab}>WhatsApp</label><input style={S.inp} value={f.telefone} onChange={(e) => up("telefone", e.target.value)} placeholder="(00) 00000-0000" /></div>
+      )}
+      <div style={S.fRow}><label style={S.lab}>Senha *</label><input style={S.inp} type="password" value={f.password} onChange={(e) => up("password", e.target.value)} placeholder="mínimo 6 caracteres" /></div>
+      {err && <div style={S.errM}>{err}</div>}
+      {msg && <div style={{ ...S.errM, background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#16a34a" }}>{msg}</div>}
+      <button style={S.mainBtn} onClick={submit} disabled={busy}>{busy ? "Aguarde..." : mode === "signup" ? "Criar conta" : "Entrar"}</button>
+      {mode === "login" && (
+        <button type="button" onClick={esqueceuSenha} style={{ background: "none", border: "none", color: "#d97706", fontSize: 13, marginTop: 12, cursor: "pointer", display: "block", width: "100%", textAlign: "center" }}>
+          Esqueci minha senha
+        </button>
+      )}
+    </div>
+  );
+}
+
+function Conta() {
+  const { user, authLoading, perfil, meusPedidos, logout } = use$();
+
+  if (authLoading) return <div style={S.ckC}><p style={{ textAlign: "center", color: "#888", padding: "40px 0" }}>Carregando...</p></div>;
+
+  if (!user) return (
+    <div style={S.ckC}><div style={S.ckCd}>
+      <h2 style={S.ckTi}>Minha conta</h2>
+      <p style={{ fontSize: 13, color: "#888", marginBottom: 20 }}>Entre ou crie uma conta para acompanhar seus pedidos e ver os códigos assim que forem liberados.</p>
+      <AuthForms />
+    </div></div>
+  );
+
+  const statusLabel = { pendente: "Pendente", atribuido: "Código disponível", cancelado: "Cancelado" };
+  const statusColor = { pendente: "#f59e0b", atribuido: "#16a34a", cancelado: "#dc2626" };
+
+  return (
+    <div style={S.ckC}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, gap: 12 }}>
+        <div>
+          <h2 style={{ fontSize: 20, fontWeight: 700 }}>Olá, {perfil?.nome || user.displayName || "cliente"}</h2>
+          <p style={{ fontSize: 13, color: "#888" }}>{user.email}</p>
+        </div>
+        <button onClick={() => logout()} style={{ background: "none", border: "1px solid #e8e2d5", borderRadius: 10, padding: "8px 14px", fontSize: 13, cursor: "pointer", color: "#666", whiteSpace: "nowrap" }}>Sair</button>
+      </div>
+      <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Meus pedidos</h3>
+      {meusPedidos.length === 0 && <p style={{ color: "#888", fontSize: 14 }}>Você ainda não fez nenhum pedido.</p>}
+      {meusPedidos.map((p) => (
+        <div key={p.id} style={{ ...S.ckCd, marginBottom: 12, padding: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, gap: 12 }}>
+            <strong style={{ fontSize: 14 }}>{prettify(p.categoria)}</strong>
+            <span style={{ fontSize: 12, fontWeight: 700, color: statusColor[p.status] || "#888", whiteSpace: "nowrap" }}>{statusLabel[p.status] || p.status}</span>
+          </div>
+          <div style={{ fontSize: 13, color: "#888", marginBottom: 10 }}>
+            {fmt(p.valor)} · {p.criadoEm ? new Date(p.criadoEm.seconds * 1000).toLocaleDateString("pt-BR") : ""}
+          </div>
+          {p.status === "atribuido" && p.codigo && (
+            <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, padding: "10px 12px", fontFamily: "monospace", fontSize: 14, fontWeight: 700, color: "#16a34a", wordBreak: "break-all" }}>
+              {p.codigo}
+            </div>
+          )}
+          {p.status === "pendente" && <div style={{ fontSize: 12, color: "#f59e0b" }}>Aguardando confirmação do pagamento</div>}
+          {p.status === "cancelado" && <div style={{ fontSize: 12, color: "#dc2626" }}>Pedido cancelado</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function PixQrBlock({ payload }) {
   const [dataUrl, setDataUrl] = useState(null);
   const [copied, setCopied] = useState(false);
@@ -428,7 +650,7 @@ function PixQrBlock({ payload }) {
 }
 
 function Checkout() {
-  const { cart, updQty, rmItem, total, setPage, pay, setPay, plans, submitOrder } = use$();
+  const { cart, updQty, rmItem, total, setPage, pay, setPay, plans, submitOrder, user, perfil } = use$();
   const [f, setF] = useState({ email: "", name: "", phone: "" });
   const [step, setSt] = useState("cart");
   const [busy, setBusy] = useState(false);
@@ -436,6 +658,10 @@ function Checkout() {
   const [err, setErr] = useState(null);
   const up = (k, v) => setF(p => ({ ...p, [k]: v }));
   const ok = f.email && f.name;
+
+  // Preenche com os dados da conta assim que o cliente loga (durante o checkout ou antes dele).
+  useEffect(() => { if (user && !f.email) setF((p) => ({ ...p, email: user.email || "" })); }, [user]);
+  useEffect(() => { if (perfil && !f.name) setF((p) => ({ ...p, name: perfil.nome || p.name, phone: perfil.telefone || p.phone })); }, [perfil]);
   const sv = cart.every(i => { const c = plans.find(p => p.id === i.plan.id); return c && c.disponivel >= i.qty; });
 
   if (cart.length === 0 && step !== "done") return (
@@ -501,14 +727,24 @@ function Checkout() {
       </div>}
 
       {step === "info" && <div style={S.ckCd}>
-        <h2 style={S.ckTi}>Seus dados</h2>
-        <p style={{ color: "#888", fontSize: 14, marginBottom: 20 }}>Usamos esses dados só para combinar o pagamento e enviar o código</p>
-        <div style={S.fRow}><label style={S.lab}>E-mail *</label><input style={S.inp} type="email" placeholder="seu@email.com" value={f.email} onChange={e => up("email", e.target.value)} /></div>
-        <div style={S.fFlx}><div style={S.fHf}><label style={S.lab}>Nome completo *</label><input style={S.inp} placeholder="João da Silva" value={f.name} onChange={e => up("name", e.target.value)} /></div><div style={S.fHf}><label style={S.lab}>WhatsApp</label><input style={S.inp} placeholder="(00) 00000-0000" value={f.phone} onChange={e => up("phone", e.target.value)} /></div></div>
-        <div style={S.fRow}><label style={S.lab}>Como prefere pagar?</label>
-          <div style={S.ptSm}><button style={{ ...S.ptBSm, ...(pay === "pix" ? S.ptASm : {}) }} onClick={() => setPay("pix")}>📱 Pix</button><button style={{ ...S.ptBSm, ...(pay === "card" ? S.ptASm : {}) }} onClick={() => setPay("card")}>💳 Cartão</button></div>
-        </div>
-        <button style={{ ...S.mainBtn, opacity: ok ? 1 : .45 }} disabled={!ok} onClick={() => setSt("confirm")}>Revisar pedido →</button>
+        {!user ? (
+          <>
+            <h2 style={S.ckTi}>Entre para continuar</h2>
+            <p style={{ color: "#888", fontSize: 14, marginBottom: 20 }}>Crie uma conta ou entre para acompanhar seu pedido e ver o código assim que estiver disponível.</p>
+            <AuthForms />
+          </>
+        ) : (
+          <>
+            <h2 style={S.ckTi}>Seus dados</h2>
+            <p style={{ color: "#888", fontSize: 14, marginBottom: 20 }}>Confirme seus dados de contato para este pedido</p>
+            <div style={S.fRow}><label style={S.lab}>E-mail</label><input style={{ ...S.inp, background: "#f7f7f7", color: "#888" }} value={f.email} disabled /></div>
+            <div style={S.fFlx}><div style={S.fHf}><label style={S.lab}>Nome completo *</label><input style={S.inp} placeholder="João da Silva" value={f.name} onChange={e => up("name", e.target.value)} /></div><div style={S.fHf}><label style={S.lab}>WhatsApp</label><input style={S.inp} placeholder="(00) 00000-0000" value={f.phone} onChange={e => up("phone", e.target.value)} /></div></div>
+            <div style={S.fRow}><label style={S.lab}>Como prefere pagar?</label>
+              <div style={S.ptSm}><button style={{ ...S.ptBSm, ...(pay === "pix" ? S.ptASm : {}) }} onClick={() => setPay("pix")}>📱 Pix</button><button style={{ ...S.ptBSm, ...(pay === "card" ? S.ptASm : {}) }} onClick={() => setPay("card")}>💳 Cartão</button></div>
+            </div>
+            <button style={{ ...S.mainBtn, opacity: ok ? 1 : .45 }} disabled={!ok} onClick={() => setSt("confirm")}>Revisar pedido →</button>
+          </>
+        )}
       </div>}
 
       {step === "confirm" && <div style={S.ckCd}>
@@ -546,6 +782,7 @@ function Pg() {
   const { page } = use$();
   if (page === "checkout") return <Checkout />;
   if (page === "download") return <Download />;
+  if (page === "conta") return <Conta />;
   return <><Hero /><Plans /><How /><Devs /><Faq /></>;
 }
 

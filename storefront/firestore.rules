@@ -1,31 +1,51 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // Um usuario "admin" e qualquer conta que tenha um documento em /users/{uid}
+    // (criada pela tela "Usuarios" do admin). Clientes cadastrados pelo storefront
+    // usam o MESMO Firebase Auth, mas nunca ganham um doc em /users, entao esta
+    // funcao os diferencia claramente de um funcionario/admin.
+    function isAdmin() {
+      return request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     match /giftcards/{doc} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isAdmin();
     }
     match /users/{doc} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow read, write: if isAdmin();
     }
     match /clientes/{doc} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isAdmin();
     }
     match /categorias/{doc} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isAdmin();
     }
     match /config/{doc} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isAdmin();
     }
 
     // ── Storefront público (BaalShop Recargas) ──
     match /catalogo/{doc} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isAdmin();
     }
+
+    // Perfil do cliente cadastrado no storefront (nome/telefone/email).
+    // So o proprio cliente le/escreve o seu; admin pode ler para suporte.
+    match /clientesPortal/{uid} {
+      allow read: if isAdmin() || (request.auth != null && request.auth.uid == uid);
+      allow write: if request.auth != null && request.auth.uid == uid;
+    }
+
     match /pedidos/{doc} {
-      allow read, update, delete: if request.auth != null;
-      allow create: if request.auth == null
+      allow read: if isAdmin() || (request.auth != null && request.auth.uid == resource.data.clienteUid);
+      allow update, delete: if isAdmin();
+      // Cliente logado (nao-admin) so cria pedido vinculado ao proprio uid.
+      allow create: if request.auth != null
+        && !isAdmin()
+        && request.resource.data.clienteUid == request.auth.uid
         && request.resource.data.status == 'pendente'
         && request.resource.data.origem == 'storefront'
         && request.resource.data.categoria is string
