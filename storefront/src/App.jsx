@@ -148,6 +148,8 @@ const FEATURES_POR_TIPO = {
   anual: ["365 dias de acesso", "2 telas simultâneas", "Dispositivos Android", "Canais ao vivo + sob demanda"],
 };
 
+const MAX_QTY = 10; // teto por item no carrinho — nao depende do estoque, compra sem estoque e permitida
+
 const FALLBACK = [
   { id: "unitv-mensal", categoria: "UniTV Mensal", tipo: "mensal", valor: 22, disponiveis: 0 },
   { id: "unitv-anual", categoria: "UniTV Anual", tipo: "anual", valor: 180, disponiveis: 0 },
@@ -216,12 +218,15 @@ function Prov({ children }) {
     window.history.replaceState({}, "", window.location.pathname);
   }, [flash]);
 
+  // Comprar sem estoque e permitido de proposito: o pedido fica registrado mesmo assim
+  // e, se nao houver giftcard disponivel na hora do pagamento, o webhook do Mercado Pago
+  // deixa o status em "pago" para o admin atribuir o codigo manualmente depois de repor.
+  // Por isso o limite de quantidade aqui e so um teto razoavel (MAX_QTY), nao o estoque.
   const addToCart = useCallback((plan, q = 1) => {
-    if (plan.disponivel <= 0) { flash("❌ Produto esgotado!"); return; }
     setCart(prev => {
       const ex = prev.find(i => i.plan.id === plan.id);
       if (ex) {
-        if (ex.qty + q > plan.disponivel) { flash(`⚠️ Apenas ${plan.disponivel} disponível(is)`); return prev; }
+        if (ex.qty + q > MAX_QTY) { flash(`⚠️ Máximo de ${MAX_QTY} por pedido`); return prev; }
         return prev.map(i => i.plan.id === plan.id ? { ...i, qty: i.qty + q } : i);
       }
       return [...prev, { plan, qty: q }];
@@ -233,11 +238,10 @@ function Prov({ children }) {
     setCart(prev => prev.map(i => {
       if (i.plan.id !== id) return i;
       const n = i.qty + d;
-      const cur = plans.find(p => p.id === id);
-      if (n > (cur?.disponivel || 0)) return i;
+      if (n > MAX_QTY) return i;
       return { ...i, qty: Math.max(0, n) };
     }).filter(i => i.qty > 0));
-  }, [plans]);
+  }, []);
 
   const rmItem = useCallback((id) => setCart(p => p.filter(i => i.plan.id !== id)), []);
   const total = cart.reduce((s, i) => s + i.plan.preco * i.qty, 0);
@@ -339,7 +343,8 @@ const use$ = () => useContext(Ctx);
 // ─── Components ───────────────────────────────────────────────
 
 function Stock({ qty }) {
-  if (qty <= 0) return <span style={S.sOut}>Esgotado</span>;
+  // Sem estoque nao bloqueia a compra: o pedido fica pendente/pago ate a equipe repor e atribuir manualmente.
+  if (qty <= 0) return <span style={S.sWait}>Sob encomenda — pode levar mais tempo</span>;
   if (qty <= 5) return <span style={S.sLow}>Últimas {qty} unid.</span>;
   return <span style={S.sOk}>{qty} disponíveis</span>;
 }
@@ -376,7 +381,7 @@ function Hero() {
       <div style={S.heroC}>
         <div style={S.heroBdg}>⚡ BaalShop Recargas</div>
         <h1 style={S.heroT}>Recarga <span style={{ color: "#f59e0b" }}>UniTV</span></h1>
-        <p style={S.heroD}>Filmes, séries, canais ao vivo e muito mais. Peça sua recarga e receba o código combinando o pagamento com a nossa equipe.</p>
+        <p style={S.heroD}>Filmes, séries, canais ao vivo e muito mais. Pague com Pix, cartão ou boleto pelo Mercado Pago e receba o código na hora.</p>
         <div style={S.heroSt}>
           <div style={S.st}><div style={S.stN}>500+</div><div style={S.stL}>Canais ao vivo</div></div>
           <div style={S.stDiv} />
@@ -396,12 +401,11 @@ function Plans() {
   return (
     <section id="planos" style={S.sec}>
       <h2 style={S.secT}>Escolha seu plano</h2>
-      <p style={S.secS}>Faça o pedido e combinamos o pagamento (Pix ou cartão) pelo contato informado</p>
+      <p style={S.secS}>Pague com Pix, cartão ou boleto pelo Mercado Pago e receba o código na hora</p>
       <div style={S.pGrid}>
         {(loading ? FALLBACK.map(norm) : plans).map(plan => {
-          const out = plan.disponivel <= 0;
           return (
-            <div key={plan.id} style={{ ...S.pCard, ...(plan.badge ? S.pCardFt : {}), ...(out ? { opacity: .55 } : {}) }}>
+            <div key={plan.id} style={{ ...S.pCard, ...(plan.badge ? S.pCardFt : {}) }}>
               {plan.badge && <div style={S.pBdg}>{plan.badge}</div>}
               <div style={{ textAlign: "center", marginBottom: 20 }}>
                 <h3 style={S.pNm}>{plan.nome}</h3>
@@ -414,8 +418,8 @@ function Plans() {
               <ul style={S.ftList}>
                 {(plan.features || []).map((f, i) => <li key={i} style={S.ftItem}><span style={S.chk}>✓</span> {f}</li>)}
               </ul>
-              <button style={{ ...S.buyB, ...(plan.badge ? S.buyBFt : {}), ...(out ? S.dis : {}) }} disabled={out} onClick={() => { addToCart(plan); setPage("checkout"); }}>
-                {out ? "Indisponível" : "Fazer pedido"}
+              <button style={{ ...S.buyB, ...(plan.badge ? S.buyBFt : {}) }} onClick={() => { addToCart(plan); setPage("checkout"); }}>
+                Fazer pedido
               </button>
             </div>
           );
@@ -428,9 +432,9 @@ function Plans() {
 function How() {
   const steps = [
     { i: "🎯", t: "Escolha o plano", d: "Mensal ou Anual" },
-    { i: "📝", t: "Envie seus dados", d: "Nome e WhatsApp/e-mail" },
-    { i: "💬", t: "Combinamos o pagamento", d: "Pix ou cartão, por WhatsApp" },
-    { i: "📺", t: "Receba e ative", d: "Nossa equipe envia o código" },
+    { i: "🔐", t: "Crie sua conta", d: "Pra acompanhar o pedido" },
+    { i: "💳", t: "Pague no Mercado Pago", d: "Pix, cartão ou boleto" },
+    { i: "📺", t: "Ative na hora", d: "Código liberado em Minha Conta" },
   ];
   return (
     <section id="como" style={{ ...S.sec, background: "#fef8ee" }}>
@@ -455,11 +459,11 @@ function Devs() {
 function Faq() {
   const [o, setO] = useState(null);
   const q = [
-    { q: "Como recebo meu gift card?", a: "Depois de combinarmos o pagamento pelo WhatsApp/e-mail informado, nossa equipe envia o código para você por lá." },
+    { q: "Como recebo meu gift card?", a: "Assim que o Mercado Pago confirma o pagamento, o código aparece automaticamente em \"Minha Conta\" — não precisa esperar contato de ninguém." },
     { q: "Como ativo o código?", a: "No app UniTV, faça login, acesse a área de recarga e insira o código. A ativação é imediata." },
     { q: "Quantos dispositivos?", a: "Até 2 telas simultâneas em qualquer dispositivo Android compatível." },
-    { q: "Quanto tempo demora?", a: "Normalmente entramos em contato em poucos minutos após o pedido, dentro do nosso horário de atendimento." },
-    { q: "Como funciona o pagamento?", a: "Você escolhe Pix ou cartão só como preferência. Combinamos o pagamento com você pelo WhatsApp/e-mail antes de liberar o código." },
+    { q: "Quanto tempo demora?", a: "Normalmente o código fica disponível em poucos minutos após o pagamento ser aprovado. Se o produto estiver sob encomenda, pode levar um pouco mais." },
+    { q: "Como funciona o pagamento?", a: "Você paga direto pelo Mercado Pago — Pix, cartão ou boleto — na hora de confirmar o pedido. Não precisa combinar nada por fora." },
   ];
   return (
     <section style={{ ...S.sec, background: "#fef8ee" }}>
@@ -656,7 +660,8 @@ function Checkout() {
   // Preenche com os dados da conta assim que o cliente loga (durante o checkout ou antes dele).
   useEffect(() => { if (user && !f.email) setF((p) => ({ ...p, email: user.email || "" })); }, [user]);
   useEffect(() => { if (perfil && !f.name) setF((p) => ({ ...p, name: perfil.nome || p.name, phone: perfil.telefone || p.phone })); }, [perfil]);
-  const sv = cart.every(i => { const c = plans.find(p => p.id === i.plan.id); return c && c.disponivel >= i.qty; });
+  // Comprar sem estoque e permitido — so avisamos que pode demorar mais, nao bloqueamos o pedido.
+  const temSobEncomenda = cart.some(i => { const c = plans.find(p => p.id === i.plan.id); return !c || c.disponivel < i.qty; });
 
   if (cart.length === 0 && step !== "done") return (
     <div style={S.ckC}><div style={S.emB}>
@@ -707,7 +712,7 @@ function Checkout() {
           return <div key={i} style={{ ...S.ckStI, opacity: i <= si ? 1 : .35 }}><div style={{ ...S.ckDot, background: i <= si ? "#d97706" : "#ddd" }}>{i + 1}</div><span style={{ fontSize: 12, fontWeight: 600 }}>{l}</span></div>;
         })}
       </div>
-      {!sv && <div style={S.warn}>⚠️ Alguns itens ficaram indisponíveis. Verifique as quantidades.</div>}
+      {temSobEncomenda && <div style={S.warn}>ℹ️ Algum item está sob encomenda — a compra é permitida, mas pode levar mais tempo até termos o código disponível.</div>}
 
       {step === "cart" && <div style={S.ckCd}>
         <h2 style={S.ckTi}>Seu carrinho</h2>
@@ -718,7 +723,7 @@ function Checkout() {
           </div>
         ); })}
         <div style={S.totBar}><span style={{ fontSize: 16, fontWeight: 600 }}>Total</span><span style={S.totV}>{fmt(total)}</span></div>
-        <button style={{ ...S.mainBtn, ...(sv ? {} : S.dis) }} disabled={!sv} onClick={() => setSt("info")}>Continuar →</button>
+        <button style={S.mainBtn} onClick={() => setSt("info")}>Continuar →</button>
       </div>}
 
       {step === "info" && <div style={S.ckCd}>
@@ -746,10 +751,11 @@ function Checkout() {
           <div style={{ ...S.sumL, borderTop: "2px solid #eee", paddingTop: 10, marginTop: 6, fontWeight: 700 }}><span>Total estimado</span><span style={{ color: "#d97706", fontSize: 20 }}>{fmt(total)}</span></div>
         </div>
         <div style={S.payI}><div style={{ fontSize: 14, color: "#666", lineHeight: 1.6 }}>
-          Ao confirmar, você será levado ao <strong>Mercado Pago</strong> para pagar via Pix, cartão ou boleto. Assim que o pagamento for aprovado, o código de ativação é liberado automaticamente aqui em "Minha Conta".
+          Ao confirmar, você será levado ao <strong>Mercado Pago</strong> para pagar via Pix, cartão ou boleto. Assim que o pagamento for aprovado, o código de ativação é liberado automaticamente aqui em "Minha Conta"
+          {temSobEncomenda ? " — exceto para itens sob encomenda, que ficam com a equipe até termos estoque para atribuir manualmente." : "."}
         </div></div>
         {err && <div style={S.errM}>{err}</div>}
-        <button style={S.mainBtn} onClick={doSubmit} disabled={busy || !sv}>
+        <button style={S.mainBtn} onClick={doSubmit} disabled={busy}>
           {busy ? "⏳ Enviando..." : "Ir para o pagamento →"}
         </button>
       </div>}
@@ -838,6 +844,7 @@ const S = {
   sOk: { fontSize: 12, fontWeight: 600, color: "#16a34a", background: "#f0fdf4", padding: "3px 10px", borderRadius: 8 },
   sLow: { fontSize: 12, fontWeight: 600, color: "#ea580c", background: "#fff7ed", padding: "3px 10px", borderRadius: 8 },
   sOut: { fontSize: 12, fontWeight: 600, color: "#dc2626", background: "#fef2f2", padding: "3px 10px", borderRadius: 8 },
+  sWait: { fontSize: 12, fontWeight: 600, color: "#7c3aed", background: "#f5f3ff", padding: "3px 10px", borderRadius: 8 },
   warn: { background: "#fff7ed", border: "1px solid #fed7aa", color: "#c2410c", padding: "12px 16px", borderRadius: 12, fontSize: 14, fontWeight: 500, marginBottom: 16, textAlign: "center" },
   stGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 20 },
   stCard: { textAlign: "center", padding: 24, borderRadius: 16, background: "#fff", border: "1px solid #eee", position: "relative" },
