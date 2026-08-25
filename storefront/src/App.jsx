@@ -252,42 +252,85 @@ function Prov({ children }) {
   const total = cart.reduce((s, i) => s + i.plan.preco * i.qty, 0);
   const count = cart.reduce((s, i) => s + i.qty, 0);
 
+  const [cupom, setCupom] = useState(null);
+  const [cupomBusy, setCupomBusy] = useState(false);
+  const desconto = cupom
+    ? Math.min(total, cupom.tipo === "percentual" ? total * (cupom.valor / 100) : cupom.valor)
+    : 0;
+  const totalFinal = Math.max(0, total - desconto);
+
+  // Valida o cupom no Worker (nunca direto no Firestore — evita expor todos os codigos
+  // via leitura publica). O total é reconferido de novo no servidor ao criar o pagamento.
+  const aplicarCupom = useCallback(async (codigo) => {
+    setCupomBusy(true);
+    try {
+      const res = await fetch("/api/validar-cupom", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ codigo, total }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!data.valido) throw new Error(data.motivo || "Cupom inválido");
+      setCupom({ codigo: data.codigo, tipo: data.tipo, valor: data.valor });
+      flash(`✅ Cupom ${data.codigo} aplicado!`);
+    } finally {
+      setCupomBusy(false);
+    }
+  }, [total, flash]);
+
+  const removerCupom = useCallback(() => setCupom(null), []);
+
   // Cria 1 documento de pedido por unidade (compativel com o admin: Pedidos > Atribuir Codigo
   // busca giftcards por igualdade exata de `categoria`). Um grupoId liga os itens do mesmo carrinho.
   // Login e obrigatorio: clienteUid identifica o pedido como do cliente logado, tanto para a
   // regra do Firestore quanto para ele conseguir ver o pedido/codigo em "Minha Conta".
+  // O desconto do cupom e distribuido proporcionalmente entre as unidades, com a ultima
+  // absorvendo o resto do arredondamento — assim a soma dos "valor" bate exatamente com
+  // totalFinal, e o Worker (que recalcula o total no servidor) nao precisa saber de cupom.
   const submitOrder = useCallback(async (cli) => {
     if (!db) throw new Error("Não foi possível conectar ao servidor. Tente novamente em instantes.");
     if (!user) throw new Error("Faça login para continuar.");
     if (cart.length === 0) throw new Error("Carrinho vazio.");
+
+    const unidades = [];
+    cart.forEach(item => { for (let n = 0; n < item.qty; n++) unidades.push(item.plan); });
+    if (unidades.length > 400) throw new Error("Pedido muito grande, reduza a quantidade.");
+
+    let acumulado = 0;
+    const valoresFinais = unidades.map((plan, idx) => {
+      if (idx === unidades.length - 1) return Math.round((totalFinal - acumulado) * 100) / 100;
+      const proporcao = total > 0 ? plan.preco / total : 0;
+      const valorFinal = Math.round((plan.preco - desconto * proporcao) * 100) / 100;
+      acumulado += valorFinal;
+      return valorFinal;
+    });
+
     const grupoId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const clienteContato = cli.phone || cli.email;
     const batch = db.batch();
-    let count = 0;
-    cart.forEach(item => {
-      for (let n = 0; n < item.qty; n++) {
-        const ref = db.collection("pedidos").doc();
-        batch.set(ref, {
-          categoria: item.plan.categoriaRaw,
-          tipo: item.plan.tipo,
-          valor: item.plan.preco,
-          clienteUid: user.uid,
-          clienteNome: cli.name,
-          clienteContato,
-          clienteEmail: cli.email || null,
-          clienteTelefone: cli.phone || null,
-          status: "pendente",
-          origem: "storefront",
-          grupoId,
-          criadoEm: window.firebase.firestore.FieldValue.serverTimestamp(),
-        });
-        count++;
-      }
+    unidades.forEach((plan, idx) => {
+      const ref = db.collection("pedidos").doc();
+      batch.set(ref, {
+        categoria: plan.categoriaRaw,
+        tipo: plan.tipo,
+        valor: valoresFinais[idx],
+        valorOriginal: plan.preco,
+        cupomCodigo: cupom ? cupom.codigo : null,
+        clienteUid: user.uid,
+        clienteNome: cli.name,
+        clienteContato,
+        clienteEmail: cli.email || null,
+        clienteTelefone: cli.phone || null,
+        status: "pendente",
+        origem: "storefront",
+        grupoId,
+        criadoEm: window.firebase.firestore.FieldValue.serverTimestamp(),
+      });
     });
-    if (count > 400) throw new Error("Pedido muito grande, reduza a quantidade.");
     await batch.commit();
+    setCupom(null);
     return grupoId;
-  }, [db, cart, user]);
+  }, [db, cart, user, cupom, total, desconto, totalFinal]);
 
   // Cria o pagamento no Mercado Pago (Checkout Pro) para um grupo de pedidos ja gravados
   // e devolve a URL de redirecionamento. O total e recalculado no servidor (Worker) a
@@ -338,6 +381,7 @@ function Prov({ children }) {
     <Ctx.Provider value={{
       plans, cart, addToCart, updQty, rmItem, total, count, page, setPage, toast, loading, submitOrder, criarPagamento,
       user, authLoading, perfil, meusPedidos, signup, login, logout, resetPassword,
+      cupom, cupomBusy, desconto, totalFinal, aplicarCupom, removerCupom,
     }}>
       {children}
     </Ctx.Provider>
@@ -355,7 +399,7 @@ function Stock({ qty }) {
 }
 
 function Header() {
-  const { count, total, setPage, user, authLoading } = use$();
+  const { count, totalFinal, setPage, user, authLoading } = use$();
   return (
     <header style={S.hdr}>
       <div style={S.hdrIn}>
@@ -371,7 +415,7 @@ function Header() {
           {!authLoading && <a style={S.nLnk} onClick={() => setPage("conta")}>{user ? "Minha Conta" : "Entrar"}</a>}
         </nav>
         <button style={S.cBtn} onClick={() => setPage("checkout")}>
-          🛒{count > 0 && <span style={S.cBdg}>{count}</span>}{total > 0 && <span style={S.cTot}>{fmt(total)}</span>}
+          🛒{count > 0 && <span style={S.cBdg}>{count}</span>}{totalFinal > 0 && <span style={S.cTot}>{fmt(totalFinal)}</span>}
         </button>
       </div>
     </header>
@@ -653,8 +697,42 @@ function Conta() {
   );
 }
 
+function CupomBox() {
+  const { cupom, cupomBusy, desconto, aplicarCupom, removerCupom } = use$();
+  const [input, setInput] = useState("");
+  const [erro, setErro] = useState(null);
+
+  const aplicar = async () => {
+    setErro(null);
+    if (!input.trim()) return;
+    try { await aplicarCupom(input.trim()); setInput(""); }
+    catch (e) { setErro(e.message); }
+  };
+
+  if (cupom) {
+    return (
+      <div style={S.cupomAplicado}>
+        <span>🎟️ <strong>{cupom.codigo}</strong> aplicado — desconto de {fmt(desconto)}</span>
+        <button type="button" onClick={removerCupom} style={S.cupomRemover}>Remover</button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input style={{ ...S.inp, flex: 1 }} placeholder="Cupom de desconto" value={input} onChange={e => setInput(e.target.value.toUpperCase())} onKeyDown={e => e.key === "Enter" && aplicar()} />
+        <button type="button" onClick={aplicar} disabled={cupomBusy || !input.trim()} style={{ background: "#d97706", color: "#fff", border: "none", borderRadius: 10, padding: "0 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+          {cupomBusy ? "..." : "Aplicar"}
+        </button>
+      </div>
+      {erro && <div style={{ fontSize: 12, color: "#dc2626", marginTop: 6 }}>{erro}</div>}
+    </div>
+  );
+}
+
 function Checkout() {
-  const { cart, updQty, rmItem, total, setPage, plans, submitOrder, criarPagamento, user, perfil } = use$();
+  const { cart, updQty, rmItem, desconto, totalFinal, cupom, setPage, plans, submitOrder, criarPagamento, user, perfil } = use$();
   const [f, setF] = useState({ email: "", name: "", phone: "" });
   const [step, setSt] = useState("cart");
   const [busy, setBusy] = useState(false);
@@ -729,7 +807,9 @@ function Checkout() {
             <div style={S.cRt}><div style={S.qW}><button style={S.qB} onClick={() => updQty(i.plan.id, -1)}>−</button><span style={S.qV}>{i.qty}</span><button style={S.qB} onClick={() => updQty(i.plan.id, 1)}>+</button></div><div style={S.cPr}>{fmt(i.plan.preco * i.qty)}</div><button style={S.rmB} onClick={() => rmItem(i.plan.id)}>✕</button></div>
           </div>
         ); })}
-        <div style={S.totBar}><span style={{ fontSize: 16, fontWeight: 600 }}>Total</span><span style={S.totV}>{fmt(total)}</span></div>
+        <CupomBox />
+        {desconto > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: "#16a34a", marginBottom: 4 }}><span>Desconto ({cupom.codigo})</span><span>-{fmt(desconto)}</span></div>}
+        <div style={S.totBar}><span style={{ fontSize: 16, fontWeight: 600 }}>Total</span><span style={S.totV}>{fmt(totalFinal)}</span></div>
         <button style={S.mainBtn} onClick={() => setSt("info")}>Continuar →</button>
       </div>}
 
@@ -755,7 +835,8 @@ function Checkout() {
         <h2 style={S.ckTi}>Confirmar pedido</h2>
         <div style={S.sumB}>
           {cart.map(i => <div key={i.plan.id} style={S.sumL}><span>{i.plan.nome} × {i.qty}</span><span>{fmt(i.plan.preco * i.qty)}</span></div>)}
-          <div style={{ ...S.sumL, borderTop: "2px solid #eee", paddingTop: 10, marginTop: 6, fontWeight: 700 }}><span>Total estimado</span><span style={{ color: "#d97706", fontSize: 20 }}>{fmt(total)}</span></div>
+          {desconto > 0 && <div style={{ ...S.sumL, color: "#16a34a" }}><span>Desconto ({cupom.codigo})</span><span>-{fmt(desconto)}</span></div>}
+          <div style={{ ...S.sumL, borderTop: "2px solid #eee", paddingTop: 10, marginTop: 6, fontWeight: 700 }}><span>Total estimado</span><span style={{ color: "#d97706", fontSize: 20 }}>{fmt(totalFinal)}</span></div>
         </div>
         <div style={S.payI}><div style={{ fontSize: 14, color: "#666", lineHeight: 1.6 }}>
           Ao confirmar, você será levado ao <strong>Mercado Pago</strong> para pagar via Pix, cartão ou boleto. Assim que o pagamento for aprovado, o código de ativação é liberado automaticamente aqui em "Minha Conta"
@@ -893,6 +974,8 @@ const S = {
   emB: { textAlign: "center", padding: "60px 20px", background: "#fff", borderRadius: 18, border: "1px solid #eee" },
   sucB: { textAlign: "center", padding: "40px 24px", background: "#fff", borderRadius: 18, border: "1px solid #eee" },
   errM: { background: "#fef2f2", border: "1px solid #fecaca", color: "#dc2626", padding: "10px 14px", borderRadius: 10, fontSize: 13, marginBottom: 12, textAlign: "center" },
+  cupomAplicado: { display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, padding: "10px 14px", fontSize: 13, color: "#16a34a", marginBottom: 16, gap: 10 },
+  cupomRemover: { background: "none", border: "none", color: "#dc2626", fontSize: 12, fontWeight: 600, cursor: "pointer", textDecoration: "underline", whiteSpace: "nowrap" },
   dlLink: { display: "block", fontSize: 13, color: "#d97706", fontWeight: 600, textDecoration: "none", marginBottom: 8, wordBreak: "break-all" },
   dlCode: { background: "#fffbf2", border: "1px solid #f0e4cc", borderRadius: 12, padding: "10px 16px", flex: "1 1 160px" },
   dlCodeLbl: { fontSize: 12, color: "#888", marginBottom: 4 },

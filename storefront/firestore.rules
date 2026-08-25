@@ -25,6 +25,12 @@ service cloud.firestore {
     match /config/{doc} {
       allow read, write: if isAdmin();
     }
+    // Cupons nao tem leitura publica de proposito: a validacao no storefront passa
+    // pelo Worker (POST /api/validar-cupom), que le com a service account. Assim
+    // ninguem consegue listar todos os codigos direto pelo SDK do navegador.
+    match /cupons/{doc} {
+      allow read, write: if isAdmin();
+    }
 
     // ── Storefront público (BaalShop Recargas) ──
     match /catalogo/{doc} {

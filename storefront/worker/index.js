@@ -51,6 +51,36 @@ async function handleCriarPagamento(request, env) {
   return json({ url });
 }
 
+// Le a coleção "cupons" com a service account (bypassa as regras do Firestore) para
+// nunca precisar abrir leitura publica dessa coleção — assim ninguem consegue listar
+// todos os codigos de cupom direto pelo SDK do cliente.
+async function handleValidarCupom(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ valido: false, motivo: "JSON invalido" }, 400);
+  }
+  const codigo = (body.codigo || "").toString().trim().toUpperCase();
+  const total = Number(body.total) || 0;
+  if (!codigo) return json({ valido: false, motivo: "Digite um código de cupom" }, 400);
+
+  const cupons = await firestoreQuery(env, "cupons", [["codigo", codigo]], 1);
+  if (!cupons.length) return json({ valido: false, motivo: "Cupom não encontrado" });
+  const c = cupons[0];
+
+  if (c.ativo === false) return json({ valido: false, motivo: "Este cupom não está mais ativo" });
+  if (c.validoAte) {
+    const hoje = new Date().toISOString().slice(0, 10);
+    if (c.validoAte < hoje) return json({ valido: false, motivo: "Este cupom expirou" });
+  }
+  if (c.valorMinimo != null && total < c.valorMinimo) {
+    return json({ valido: false, motivo: `Pedido mínimo de R$ ${c.valorMinimo.toFixed(2)} para usar este cupom` });
+  }
+
+  return json({ valido: true, codigo: c.codigo, tipo: c.tipo, valor: c.valor });
+}
+
 async function handleWebhook(request, env) {
   const url = new URL(request.url);
   let paymentId = url.searchParams.get("data.id") || url.searchParams.get("id");
@@ -124,6 +154,9 @@ export default {
     try {
       if (url.pathname === "/api/criar-pagamento" && request.method === "POST") {
         return await handleCriarPagamento(request, env);
+      }
+      if (url.pathname === "/api/validar-cupom" && request.method === "POST") {
+        return await handleValidarCupom(request, env);
       }
       if (url.pathname === "/api/mp-webhook") {
         return await handleWebhook(request, env);

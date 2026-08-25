@@ -226,6 +226,7 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
             <button class="nav-link" data-page="list">Lista</button>
             <button class="nav-link" data-page="pendentes">Pendentes</button>
             <button class="nav-link" data-page="pedidos">Pedidos</button>
+            <button class="nav-link" data-page="cupons">Cupons</button>
           </div>
         </div>
         <button class="nav-link" data-page="usuarios" id="navUsuarios" style="display:none">Usuarios</button>
@@ -453,6 +454,25 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
     </div>
   </div>
 
+  <!-- PAGE: CUPONS -->
+  <div class="page" id="pageCupons" style="display:none">
+    <div class="content">
+      <h2 class="page-title">Cadastrar Cupom de Desconto</h2>
+      <div class="add-bar" style="flex-direction:column">
+        <input type="text" id="cupomCodigo" placeholder="Código do cupom (ex: BEMVINDO10)" autocomplete="off" style="text-transform:uppercase">
+        <select id="cupomTipo" style="width:100%!important">
+          <option value="percentual">Percentual (%)</option>
+          <option value="fixo">Valor fixo (R$)</option>
+        </select>
+        <input type="number" id="cupomValor" placeholder="Valor do desconto" step="0.01" min="0" style="width:100%!important">
+        <input type="number" id="cupomValorMinimo" placeholder="Pedido mínimo (R$) - opcional" step="0.01" min="0" style="width:100%!important">
+        <input type="date" id="cupomValidade" style="width:100%!important;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:'Inter',sans-serif;font-size:0.85rem;padding:0.6rem 0.75rem;outline:none" title="Válido até (opcional)">
+        <button class="btn-add" id="btnAddCupom">+ Cadastrar Cupom</button>
+      </div>
+      <div class="cliente-list" id="cupomList"></div>
+    </div>
+  </div>
+
   <!-- PAGE: CATEGORIAS -->
   <div class="page" id="pageCategorias" style="display:none">
     <div class="content">
@@ -532,6 +552,7 @@ const pendListEl = $('pendList'), pendSearch = $('pendSearch');
 const pageConsulta = $('pageConsulta'), consultaBody = $('consultaBody'), consultaSearch = $('consultaSearch'), consultaEmpty = $('consultaEmpty');
 const pageEstoque = $('pageEstoque'), estoqueBody = $('estoqueBody'), estoqueSearch = $('estoqueSearch'), estoqueEmpty = $('estoqueEmpty'), estoqueCount = $('estoqueCount'), estoqueFilterStatus = $('estoqueFilterStatus'), btnFixDescCodigo = $('btnFixDescCodigo');
 const pagePedidos = $('pagePedidos'), pedidosBody = $('pedidosBody'), pedidosSearch = $('pedidosSearch'), pedidosFilterStatus = $('pedidosFilterStatus'), pedidosEmpty = $('pedidosEmpty'), pedidosStatsEl = $('pedidosStats');
+const pageCupons = $('pageCupons'), cupomCodigo = $('cupomCodigo'), cupomTipo = $('cupomTipo'), cupomValor = $('cupomValor'), cupomValorMinimo = $('cupomValorMinimo'), cupomValidade = $('cupomValidade'), btnAddCupom = $('btnAddCupom'), cupomListEl = $('cupomList');
 const statsEl = $('stats'), tabsEl = $('tabs'), cardListEl = $('cardList'), searchInput = $('searchInput');
 const addBar = $('addBar'), btnAdd = $('btnAdd'), addCategoria = $('addCategoria');
 const batchInput = $('batchInput'), batchValor = $('batchValor'), batchCategoria = $('batchCategoria'), btnBatch = $('btnBatch'), batchStatus = $('batchStatus');
@@ -543,9 +564,9 @@ const btnCreateUser = $('btnCreateUser'), userListEl = $('userList');
 const tgToken = $('tgToken'), tgChatId = $('tgChatId'), btnSaveTg = $('btnSaveTg'), btnTestTg = $('btnTestTg'), tgStatus = $('tgStatus');
 const btnTelegram = $('btnTelegram');
 
-let cards=[], users=[], clientes=[], categorias=[], pedidos=[], currentUser=null, currentUserDoc=null;
+let cards=[], users=[], clientes=[], categorias=[], pedidos=[], cupons=[], currentUser=null, currentUserDoc=null;
 let activeTab='todos', searchQuery='', cliSearchQuery='', pendSearchQuery='', consultaSearchQuery='', estoqueSearchQuery='', estoqueStatusFilter='todos', pedidosSearchQuery='', pedidosStatusFilter='todos', currentPage='dashboard';
-let unsubCards=null, unsubUsers=null, unsubClientes=null, unsubCats=null, unsubPedidos=null;
+let unsubCards=null, unsubUsers=null, unsubClientes=null, unsubCats=null, unsubPedidos=null, unsubCupons=null;
 let tgConfig={token:'',chatId:''};
 let catalogoSyncTimer=null;
 
@@ -566,7 +587,7 @@ auth.onAuthStateChanged(async user=>{
     navUser.textContent=user.email;
     navUsuarios.style.display=currentUserDoc.role==='admin'?'':'none';
     showScreen('app');
-    subscribeCards(); subscribeClientes(); subscribeCategorias(); subscribePedidos();
+    subscribeCards(); subscribeClientes(); subscribeCategorias(); subscribePedidos(); subscribeCupons();
     if(currentUserDoc.role==='admin') subscribeUsers();
     loadTgConfig();
     initCatalogoSync();
@@ -577,8 +598,9 @@ auth.onAuthStateChanged(async user=>{
     if(unsubClientes){unsubClientes();unsubClientes=null}
     if(unsubCats){unsubCats();unsubCats=null}
     if(unsubPedidos){unsubPedidos();unsubPedidos=null}
+    if(unsubCupons){unsubCupons();unsubCupons=null}
     if(catalogoSyncTimer){clearTimeout(catalogoSyncTimer);catalogoSyncTimer=null}
-    cards=[];users=[];clientes=[];categorias=[];pedidos=[];
+    cards=[];users=[];clientes=[];categorias=[];pedidos=[];cupons=[];
     showScreen('login');
   }
   loadingOverlay.style.display='none';
@@ -651,6 +673,7 @@ function switchPage(page){
   pageConsulta.style.display=page==='consulta'?'':'none';
   pagePendentes.style.display=page==='pendentes'?'':'none';
   pagePedidos.style.display=page==='pedidos'?'':'none';
+  pageCupons.style.display=page==='cupons'?'':'none';
   pageCategorias.style.display=page==='categorias'?'':'none';
   pageUsuarios.style.display=page==='usuarios'?'':'none';
   if(page==='dashboard') renderDashboard();
@@ -658,6 +681,7 @@ function switchPage(page){
   if(page==='consulta') renderConsulta();
   if(page==='estoque') renderEstoque();
   if(page==='pedidos') renderPedidos();
+  if(page==='cupons') renderCupons();
 }
 
 // ============================================================
@@ -1268,6 +1292,61 @@ window.removeCat=async function(id){
 };
 
 // ============================================================
+// FIRESTORE - CUPONS DE DESCONTO
+// (validados pelo storefront via Worker, nao ha leitura publica direta)
+// ============================================================
+function subscribeCupons(){
+  unsubCupons=db.collection('cupons').orderBy('criadoEm','desc').onSnapshot(snap=>{
+    cupons=snap.docs.map(d=>({id:d.id,...d.data()}));
+    if(currentPage==='cupons') renderCupons();
+  },err=>{console.error(err)});
+}
+
+function cupomCodigoDuplicado(codigo,excludeId){
+  const c=(codigo||'').trim().toUpperCase();
+  if(!c) return false;
+  return cupons.some(ct=>ct.id!==excludeId&&(ct.codigo||'').trim().toUpperCase()===c);
+}
+
+btnAddCupom.addEventListener('click',async()=>{
+  const codigo=cupomCodigo.value.trim().toUpperCase();
+  const tipo=cupomTipo.value;
+  const valor=cupomValor.value?parseFloat(cupomValor.value):null;
+  const valorMinimo=cupomValorMinimo.value?parseFloat(cupomValorMinimo.value):null;
+  const validoAte=cupomValidade.value||null;
+  if(!codigo){cupomCodigo.focus();return}
+  if(!valor||valor<=0){cupomValor.focus();toast('Informe um valor de desconto valido',true);return}
+  if(cupomCodigoDuplicado(codigo)){toast('Ja existe um cupom com esse codigo',true);cupomCodigo.focus();return}
+  try{
+    await db.collection('cupons').add({codigo,tipo,valor,valorMinimo,validoAte,ativo:true,criadoEm:firebase.firestore.FieldValue.serverTimestamp()});
+    cupomCodigo.value='';cupomValor.value='';cupomValorMinimo.value='';cupomValidade.value='';toast('Cupom cadastrado!');
+  }catch(e){toast('Erro ao cadastrar cupom',true)}
+});
+
+function renderCupons(){
+  if(!cupons.length){cupomListEl.innerHTML='<div class="empty">Nenhum cupom cadastrado</div>';return}
+  cupomListEl.innerHTML=cupons.map(c=>{
+    const valorStr=c.tipo==='percentual'?c.valor+'%':'R$ '+fmtV(c.valor);
+    const minStr=c.valorMinimo!=null?' &middot; min. R$ '+fmtV(c.valorMinimo):'';
+    const validadeStr=c.validoAte?' &middot; até '+new Date(c.validoAte+'T12:00:00').toLocaleDateString('pt-BR'):'';
+    const ativo=c.ativo!==false;
+    const statusBadge='<span class="est-status '+(ativo?'ativo':'usado')+'">'+(ativo?'Ativo':'Inativo')+'</span>';
+    return '<div class="cliente-item"><div><div class="cli-name">'+esc(c.codigo)+' <span style="font-weight:400;color:var(--text-muted);font-size:0.8rem">'+valorStr+' off'+minStr+validadeStr+'</span></div><div class="cli-detail">'+statusBadge+'</div></div><button class="btn-sm" onclick="toggleCupomAtivo(\''+c.id+'\')">'+(ativo?'Desativar':'Ativar')+'</button><button class="btn-remove-user" onclick="removeCupom(\''+c.id+'\')">&#10005;</button></div>';
+  }).join('');
+}
+
+window.toggleCupomAtivo=async function(id){
+  const cupom=cupons.find(c=>c.id===id);if(!cupom)return;
+  const novoAtivo=!(cupom.ativo!==false);
+  try{await db.collection('cupons').doc(id).update({ativo:novoAtivo});toast(novoAtivo?'Cupom ativado':'Cupom desativado')}catch(e){toast('Erro ao atualizar',true)}
+};
+
+window.removeCupom=async function(id){
+  if(!confirm('Remover este cupom?'))return;
+  try{await db.collection('cupons').doc(id).delete();toast('Cupom removido')}catch(e){toast('Erro ao remover',true)}
+};
+
+// ============================================================
 // CATALOGO - sincroniza contagem de disponiveis por descricao
 // (colecao publica lida pelo storefront BaalShop Recargas, sem codigos)
 // ============================================================
@@ -1359,7 +1438,9 @@ function renderPedidos(){
   const statusLabel={pendente:'Pendente',pago:'Pago (sem estoque)',atribuido:'Atribuido',cancelado:'Cancelado'};
   pedidosBody.innerHTML=list.map(p=>{
     const dt=p.criadoEm?p.criadoEm.toDate().toLocaleDateString('pt-BR')+' '+p.criadoEm.toDate().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'-';
-    const vl=p.valor!=null?'R$ '+fmtV(p.valor):'-';
+    const vlOriginal=p.valorOriginal!=null&&p.valorOriginal!==p.valor?'<div style="text-decoration:line-through;color:var(--text-muted);font-size:0.72rem">R$ '+fmtV(p.valorOriginal)+'</div>':'';
+    const cupomTag=p.cupomCodigo?'<div class="cliente-tag" style="margin-top:2px">🎟️ '+esc(p.cupomCodigo)+'</div>':'';
+    const vl=(p.valor!=null?vlOriginal+'R$ '+fmtV(p.valor):'-')+cupomTag;
     const st='<span class="ped-status '+p.status+'">'+(statusLabel[p.status]||p.status)+'</span>';
     let acts='-';
     if(p.status==='pendente'||p.status==='pago'){
