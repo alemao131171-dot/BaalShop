@@ -171,6 +171,8 @@ function tipoPeriodo(tipo) {
 function norm(doc) {
   const tipo = doc.tipo || "mensal";
   const categoriaRaw = doc.categoria || tipo;
+  const valorVenda = doc.valor != null ? doc.valor : 0;
+  const valorPromo = doc.valorPromo != null ? doc.valorPromo : null;
   return {
     id: doc.id,
     categoriaRaw,
@@ -178,7 +180,10 @@ function norm(doc) {
     tipo,
     period: tipoPeriodo(tipo),
     badge: tipo === "anual" ? "Melhor custo-benefício" : null,
-    preco: doc.valor != null ? doc.valor : 0,
+    // preco e sempre o valor efetivo (o que o cliente paga — usado no carrinho/checkout).
+    // precoOriginal so vem preenchido quando ha promocao, pra mostrar riscado no card.
+    preco: valorPromo != null ? valorPromo : valorVenda,
+    precoOriginal: valorPromo != null ? valorVenda : null,
     disponivel: doc.disponiveis ?? 0,
     features: FEATURES_POR_TIPO[tipo] || FEATURES_POR_TIPO.mensal,
   };
@@ -413,7 +418,9 @@ function Plans() {
                 <div style={{ marginTop: 8 }}><Stock qty={plan.disponivel} /></div>
               </div>
               <div style={S.prBlk}>
+                {plan.precoOriginal != null && <div style={S.prOriginal}>{fmt(plan.precoOriginal)}</div>}
                 <div style={S.prMain}>{fmt(plan.preco)}</div>
+                {plan.precoOriginal != null && <div style={S.prPromoTag}>🔥 Promoção</div>}
               </div>
               <ul style={S.ftList}>
                 {(plan.features || []).map((f, i) => <li key={i} style={S.ftItem}><span style={S.chk}>✓</span> {f}</li>)}
@@ -835,6 +842,8 @@ const S = {
   pNm: { fontSize: 22, fontWeight: 700, marginBottom: 4 },
   prBlk: { textAlign: "center", marginBottom: 24, padding: "16px 0", background: "#fffbf2", borderRadius: 14 },
   prMain: { fontSize: 36, fontWeight: 800, color: "#1a1a2e", letterSpacing: "-1px" },
+  prOriginal: { fontSize: 16, fontWeight: 600, color: "#aaa", textDecoration: "line-through" },
+  prPromoTag: { fontSize: 12, fontWeight: 700, color: "#dc2626", marginTop: 4 },
   ftList: { listStyle: "none", padding: 0, margin: "0 0 24px" },
   ftItem: { padding: "8px 0", fontSize: 14, color: "#555", display: "flex", alignItems: "center", gap: 10, borderBottom: "1px solid #fef9ef" },
   chk: { color: "#d97706", fontWeight: 700, fontSize: 14 },
