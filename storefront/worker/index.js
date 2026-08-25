@@ -81,6 +81,47 @@ async function handleValidarCupom(request, env) {
   return json({ valido: true, codigo: c.codigo, tipo: c.tipo, valor: c.valor });
 }
 
+// Tenta atribuir um giftcard disponivel a cada pedido via transacao (mesma logica do
+// "Atribuir Codigo" do admin); se nao houver estoque, deixa "pago" para atribuicao manual.
+// Usado tanto pelo webhook do Mercado Pago quanto pelo pedido 100% gratis (cupom de 100%).
+async function confirmarEAtribuir(env, pedidos, extraBase) {
+  const agora = new Date().toISOString();
+  for (const pedido of pedidos) {
+    try {
+      const resultado = await assignGiftcardTransactional(env, pedido.categoria, pedido, { ...extraBase, pagoEm: agora });
+      if (!resultado || resultado.conflito) {
+        await firestorePatch(env, "pedidos", pedido.id, { status: "pago", ...extraBase, pagoEm: agora });
+      }
+    } catch (e) {
+      console.error("Erro ao atribuir codigo automaticamente:", e.message);
+      await firestorePatch(env, "pedidos", pedido.id, { status: "pago", ...extraBase, pagoEm: agora }).catch(() => {});
+    }
+  }
+}
+
+// Pedido com cupom de 100% de desconto: nunca chama o Mercado Pago (nao daria pra cobrar
+// R$0,00 de forma sensata). Nunca confia no navegador dizendo "isso e gratis" — reconfirma
+// a soma dos valores direto no Firestore antes de liberar.
+async function handleConfirmarGratis(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "JSON invalido" }, 400);
+  }
+  const grupoId = (body.grupoId || "").toString();
+  if (!grupoId) return json({ error: "grupoId obrigatorio" }, 400);
+
+  const pedidos = await firestoreQuery(env, "pedidos", [["grupoId", grupoId], ["status", "pendente"]]);
+  if (!pedidos.length) return json({ error: "Pedido não encontrado ou já processado" }, 404);
+
+  const totalPedido = pedidos.reduce((s, p) => s + (p.valor || 0), 0);
+  if (totalPedido > 0.009) return json({ error: "Este pedido não é gratuito" }, 400);
+
+  await confirmarEAtribuir(env, pedidos, { origemPagamento: "cupom-100" });
+  return json({ ok: true });
+}
+
 async function handleWebhook(request, env) {
   const url = new URL(request.url);
   let paymentId = url.searchParams.get("data.id") || url.searchParams.get("id");
@@ -120,31 +161,18 @@ async function handleWebhook(request, env) {
   const totalEsperado = pedidos.reduce((s, p) => s + (p.valor || 0), 0);
   const valorPago = pagamento.transaction_amount || 0;
   const valorBate = Math.abs(totalEsperado - valorPago) < 0.01;
-
   const agora = new Date().toISOString();
-  for (const pedido of pedidos) {
-    if (!valorBate) {
-      // Valor pago nao confere com o esperado — nao arrisca atribuir codigo sozinho,
-      // deixa "pago" para o admin conferir manualmente.
+
+  if (!valorBate) {
+    // Valor pago nao confere com o esperado — nao arrisca atribuir codigo sozinho,
+    // deixa "pago" para o admin conferir manualmente.
+    for (const pedido of pedidos) {
       await firestorePatch(env, "pedidos", pedido.id, { status: "pago", mpPaymentId: String(paymentId), pagoEm: agora });
-      continue;
     }
-    try {
-      const resultado = await assignGiftcardTransactional(env, pedido.categoria, pedido, {
-        mpPaymentId: String(paymentId),
-        pagoEm: agora,
-      });
-      if (!resultado || resultado.conflito) {
-        // Sem estoque disponivel (ou corrida com outro pagamento) — marca como pago
-        // para o admin atribuir manualmente assim que houver codigo.
-        await firestorePatch(env, "pedidos", pedido.id, { status: "pago", mpPaymentId: String(paymentId), pagoEm: agora });
-      }
-    } catch (e) {
-      console.error("Erro ao atribuir codigo automaticamente:", e.message);
-      await firestorePatch(env, "pedidos", pedido.id, { status: "pago", mpPaymentId: String(paymentId), pagoEm: agora }).catch(() => {});
-    }
+    return new Response("ok", { status: 200 });
   }
 
+  await confirmarEAtribuir(env, pedidos, { mpPaymentId: String(paymentId) });
   return new Response("ok", { status: 200 });
 }
 
@@ -157,6 +185,9 @@ export default {
       }
       if (url.pathname === "/api/validar-cupom" && request.method === "POST") {
         return await handleValidarCupom(request, env);
+      }
+      if (url.pathname === "/api/confirmar-pedido-gratis" && request.method === "POST") {
+        return await handleConfirmarGratis(request, env);
       }
       if (url.pathname === "/api/mp-webhook") {
         return await handleWebhook(request, env);

@@ -346,6 +346,19 @@ function Prov({ children }) {
     return data.url;
   }, []);
 
+  // Pedido com cupom de 100% de desconto: nao passa pelo Mercado Pago (nao daria pra
+  // cobrar R$0,00). O Worker reconfere a soma real no Firestore antes de liberar —
+  // nunca confia neste totalFinal calculado so no navegador.
+  const confirmarPedidoGratis = useCallback(async (grupoId) => {
+    const res = await fetch("/api/confirmar-pedido-gratis", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ grupoId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || "Não foi possível concluir o pedido. Tente novamente.");
+  }, []);
+
   const signup = useCallback(async ({ email, password, nome, telefone }) => {
     const auth = await getAuthSDK();
     const cred = await auth.createUserWithEmailAndPassword(email, password);
@@ -379,7 +392,7 @@ function Prov({ children }) {
 
   return (
     <Ctx.Provider value={{
-      plans, cart, addToCart, updQty, rmItem, total, count, page, setPage, toast, loading, submitOrder, criarPagamento,
+      plans, cart, addToCart, updQty, rmItem, total, count, page, setPage, toast, loading, submitOrder, criarPagamento, confirmarPedidoGratis,
       user, authLoading, perfil, meusPedidos, signup, login, logout, resetPassword,
       cupom, cupomBusy, desconto, totalFinal, aplicarCupom, removerCupom,
     }}>
@@ -732,15 +745,17 @@ function CupomBox() {
 }
 
 function Checkout() {
-  const { cart, updQty, rmItem, desconto, totalFinal, cupom, setPage, plans, submitOrder, criarPagamento, user, perfil } = use$();
+  const { cart, updQty, rmItem, desconto, totalFinal, cupom, setPage, plans, submitOrder, criarPagamento, confirmarPedidoGratis, user, perfil } = use$();
   const [f, setF] = useState({ email: "", name: "", phone: "" });
   const [step, setSt] = useState("cart");
   const [busy, setBusy] = useState(false);
   const [oid, setOid] = useState(null);
   const [payUrl, setPayUrl] = useState(null);
+  const [gratis, setGratis] = useState(false);
   const [err, setErr] = useState(null);
   const up = (k, v) => setF(p => ({ ...p, [k]: v }));
   const ok = f.email && f.name;
+  const ehGratis = totalFinal <= 0;
 
   // Preenche com os dados da conta assim que o cliente loga (durante o checkout ou antes dele).
   useEffect(() => { if (user && !f.email) setF((p) => ({ ...p, email: user.email || "" })); }, [user]);
@@ -758,6 +773,18 @@ function Checkout() {
   );
 
   if (step === "done") {
+    if (gratis) {
+      return (
+        <div style={S.ckC}><div style={S.sucB}>
+          <div style={{ fontSize: 56, marginBottom: 8 }}>✅</div>
+          <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>Pedido concluído!</h2>
+          <p style={{ color: "#666", lineHeight: 1.6, marginBottom: 24 }}>
+            Pedido #{oid ? oid.slice(0, 8) : "..."} confirmado com cupom de 100% de desconto — nada a pagar. O código já deve estar disponível em "Minha Conta".
+          </p>
+          <button style={S.mainBtn} onClick={() => setPage("conta")}>Ver em Minha Conta →</button>
+        </div></div>
+      );
+    }
     return (
       <div style={S.ckC}><div style={S.sucB}>
         <div style={{ fontSize: 56, marginBottom: 8 }}>💳</div>
@@ -777,6 +804,14 @@ function Checkout() {
       // falhou antes) para nao duplicar os pedidos já gravados.
       const grupoId = oid || await submitOrder(f);
       if (!oid) setOid(grupoId);
+      // Cupom de 100%: nunca chama o Mercado Pago, conclui direto (o Worker reconfere
+      // a soma no Firestore antes de liberar, nunca confia neste calculo do navegador).
+      if (ehGratis) {
+        await confirmarPedidoGratis(grupoId);
+        setGratis(true);
+        setSt("done");
+        return;
+      }
       const url = await criarPagamento(grupoId);
       setPayUrl(url);
       setSt("done");
@@ -839,12 +874,15 @@ function Checkout() {
           <div style={{ ...S.sumL, borderTop: "2px solid #eee", paddingTop: 10, marginTop: 6, fontWeight: 700 }}><span>Total estimado</span><span style={{ color: "#d97706", fontSize: 20 }}>{fmt(totalFinal)}</span></div>
         </div>
         <div style={S.payI}><div style={{ fontSize: 14, color: "#666", lineHeight: 1.6 }}>
-          Ao confirmar, você será levado ao <strong>Mercado Pago</strong> para pagar via Pix, cartão ou boleto. Assim que o pagamento for aprovado, o código de ativação é liberado automaticamente aqui em "Minha Conta"
-          {temSobEncomenda ? " — exceto para itens sob encomenda, que ficam com a equipe até termos estoque para atribuir manualmente." : "."}
+          {ehGratis ? (
+            <>Seu cupom cobre 100% do valor — não há pagamento a fazer. Ao confirmar, o código de ativação é liberado automaticamente aqui em "Minha Conta"{temSobEncomenda ? ", exceto para itens sob encomenda, que ficam com a equipe até termos estoque para atribuir manualmente." : "."}</>
+          ) : (
+            <>Ao confirmar, você será levado ao <strong>Mercado Pago</strong> para pagar via Pix, cartão ou boleto. Assim que o pagamento for aprovado, o código de ativação é liberado automaticamente aqui em "Minha Conta"{temSobEncomenda ? " — exceto para itens sob encomenda, que ficam com a equipe até termos estoque para atribuir manualmente." : "."}</>
+          )}
         </div></div>
         {err && <div style={S.errM}>{err}</div>}
         <button style={S.mainBtn} onClick={doSubmit} disabled={busy}>
-          {busy ? "⏳ Enviando..." : "Ir para o pagamento →"}
+          {busy ? "⏳ Enviando..." : ehGratis ? "Concluir pedido →" : "Ir para o pagamento →"}
         </button>
       </div>}
     </div>
