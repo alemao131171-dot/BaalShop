@@ -460,6 +460,7 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
       <div class="add-bar" style="flex-direction:column">
         <input type="text" id="catNome" placeholder="Nome da categoria" autocomplete="off">
         <input type="number" id="catCusto" placeholder="Custo (R$)" step="0.01" min="0" style="width:100%!important">
+        <input type="number" id="catValorVenda" placeholder="Valor de venda (R$)" step="0.01" min="0" style="width:100%!important">
         <button class="btn-add" id="btnAddCat">+ Cadastrar Categoria</button>
       </div>
       <div class="cliente-list" id="catList"></div>
@@ -535,7 +536,7 @@ const addBar = $('addBar'), btnAdd = $('btnAdd'), addCategoria = $('addCategoria
 const batchInput = $('batchInput'), batchValor = $('batchValor'), batchCategoria = $('batchCategoria'), btnBatch = $('btnBatch'), batchStatus = $('batchStatus');
 const cliNome = $('cliNome'), cliLogin = $('cliLogin'), cliSenha = $('cliSenha'), btnAddCliente = $('btnAddCliente');
 const cliSearch = $('cliSearch'), clienteListEl = $('clienteList');
-const catNome = $('catNome'), catCusto = $('catCusto'), btnAddCat = $('btnAddCat'), catListEl = $('catList');
+const catNome = $('catNome'), catCusto = $('catCusto'), catValorVenda = $('catValorVenda'), btnAddCat = $('btnAddCat'), catListEl = $('catList');
 const newUserEmail = $('newUserEmail'), newUserPass = $('newUserPass'), newUserRole = $('newUserRole');
 const btnCreateUser = $('btnCreateUser'), userListEl = $('userList');
 const tgToken = $('tgToken'), tgChatId = $('tgChatId'), btnSaveTg = $('btnSaveTg'), btnTestTg = $('btnTestTg'), tgStatus = $('tgStatus');
@@ -1216,10 +1217,12 @@ function updateCatSelects(){
 btnAddCat.addEventListener('click',async()=>{
   const nome=catNome.value.trim();
   const custo=catCusto.value?parseFloat(catCusto.value):null;
+  const valorVenda=catValorVenda.value?parseFloat(catValorVenda.value):null;
   if(!nome){catNome.focus();return}
   try{
-    await db.collection('categorias').add({nome,custo,criadoEm:firebase.firestore.FieldValue.serverTimestamp()});
-    catNome.value='';catCusto.value='';toast('Categoria cadastrada!');
+    await db.collection('categorias').add({nome,custo,valorVenda,criadoEm:firebase.firestore.FieldValue.serverTimestamp()});
+    catNome.value='';catCusto.value='';catValorVenda.value='';toast('Categoria cadastrada!');
+    scheduleCatalogoSync();
   }catch(e){toast('Erro ao cadastrar',true)}
 });
 
@@ -1227,7 +1230,8 @@ function renderCategorias(){
   if(!categorias.length){catListEl.innerHTML='<div class="empty">Nenhuma categoria cadastrada</div>';return}
   catListEl.innerHTML=categorias.map(c=>{
     const custoStr=c.custo!=null?'Custo: R$ '+fmtV(c.custo):'Sem custo';
-    return '<div class="cliente-item"><div><div class="cli-name">'+esc(c.nome)+'</div><div class="cli-detail">'+custoStr+'</div></div><button class="btn-sm" onclick="editCusto(\''+c.id+'\')">&#9998;</button><button class="btn-remove-user" onclick="removeCat(\''+c.id+'\')">&#10005;</button></div>';
+    const vendaStr=c.valorVenda!=null?'Venda: R$ '+fmtV(c.valorVenda):'Sem valor de venda';
+    return '<div class="cliente-item"><div><div class="cli-name">'+esc(c.nome)+'</div><div class="cli-detail">'+custoStr+' &middot; '+vendaStr+'</div></div><button class="btn-sm" onclick="editCusto(\''+c.id+'\')" title="Editar custo">&#9998; Custo</button><button class="btn-sm" onclick="editValorVenda(\''+c.id+'\')" title="Editar valor de venda">&#9998; Venda</button><button class="btn-remove-user" onclick="removeCat(\''+c.id+'\')">&#10005;</button></div>';
   }).join('');
 }
 
@@ -1237,6 +1241,14 @@ window.editCusto=async function(id){
   if(val===null)return;
   const nv=val?parseFloat(val):null;
   try{await db.collection('categorias').doc(id).update({custo:nv});toast('Custo atualizado')}catch(e){toast('Erro ao atualizar',true)}
+};
+
+window.editValorVenda=async function(id){
+  const cat=categorias.find(c=>c.id===id);if(!cat)return;
+  const val=prompt('Novo valor de venda para '+cat.nome+':',cat.valorVenda!=null?cat.valorVenda:'');
+  if(val===null)return;
+  const nv=val?parseFloat(val):null;
+  try{await db.collection('categorias').doc(id).update({valorVenda:nv});toast('Valor de venda atualizado');scheduleCatalogoSync()}catch(e){toast('Erro ao atualizar',true)}
 };
 
 window.removeCat=async function(id){
@@ -1265,6 +1277,11 @@ async function syncCatalogo(){
   // Agrupa por categoria (fallback: tipo) em vez de descricao, ja que a descricao
   // pode ser unica por card (numero de serie/codigo colado); categoria e o campo
   // estavel que identifica o produto para o storefront.
+  // Valor de venda cadastrado na categoria tem prioridade sobre o valor do giftcard
+  // individual, assim o preco no storefront nao depende de ter estoque cadastrado.
+  const valorVendaPorCategoria={};
+  categorias.forEach(ct=>{if(ct.valorVenda!=null)valorVendaPorCategoria[ct.nome]=ct.valorVenda});
+
   const map={};
   cards.forEach(c=>{
     const key=c.categoria||c.tipo||'(sem categoria)';
@@ -1274,6 +1291,9 @@ async function syncCatalogo(){
       if(map[key].valor==null&&c.valor!=null) map[key].valor=c.valor;
       map[key].tipo=c.tipo||map[key].tipo;
     }
+  });
+  Object.entries(map).forEach(([key,data])=>{
+    if(data.categoria&&valorVendaPorCategoria[data.categoria]!=null) data.valor=valorVendaPorCategoria[data.categoria];
   });
   try{
     const existing=await db.collection('catalogo').get();
