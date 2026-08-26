@@ -467,6 +467,10 @@ body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-h
         <input type="number" id="cupomValor" placeholder="Valor do desconto" step="0.01" min="0" style="width:100%!important">
         <input type="number" id="cupomValorMinimo" placeholder="Pedido mínimo (R$) - opcional" step="0.01" min="0" style="width:100%!important">
         <input type="date" id="cupomValidade" style="width:100%!important;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:'Inter',sans-serif;font-size:0.85rem;padding:0.6rem 0.75rem;outline:none" title="Válido até (opcional)">
+        <div>
+          <label style="display:block;font-size:0.8rem;color:var(--text-muted);margin-bottom:0.4rem">Válido em quais categorias? (nenhuma marcada = todas)</label>
+          <div id="cupomCategoriasBox" style="display:flex;flex-wrap:wrap;gap:0.6rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:0.65rem 0.75rem"></div>
+        </div>
         <button class="btn-add" id="btnAddCupom">+ Cadastrar Cupom</button>
       </div>
       <div class="cliente-list" id="cupomList"></div>
@@ -552,7 +556,7 @@ const pendListEl = $('pendList'), pendSearch = $('pendSearch');
 const pageConsulta = $('pageConsulta'), consultaBody = $('consultaBody'), consultaSearch = $('consultaSearch'), consultaEmpty = $('consultaEmpty');
 const pageEstoque = $('pageEstoque'), estoqueBody = $('estoqueBody'), estoqueSearch = $('estoqueSearch'), estoqueEmpty = $('estoqueEmpty'), estoqueCount = $('estoqueCount'), estoqueFilterStatus = $('estoqueFilterStatus'), btnFixDescCodigo = $('btnFixDescCodigo');
 const pagePedidos = $('pagePedidos'), pedidosBody = $('pedidosBody'), pedidosSearch = $('pedidosSearch'), pedidosFilterStatus = $('pedidosFilterStatus'), pedidosEmpty = $('pedidosEmpty'), pedidosStatsEl = $('pedidosStats');
-const pageCupons = $('pageCupons'), cupomCodigo = $('cupomCodigo'), cupomTipo = $('cupomTipo'), cupomValor = $('cupomValor'), cupomValorMinimo = $('cupomValorMinimo'), cupomValidade = $('cupomValidade'), btnAddCupom = $('btnAddCupom'), cupomListEl = $('cupomList');
+const pageCupons = $('pageCupons'), cupomCodigo = $('cupomCodigo'), cupomTipo = $('cupomTipo'), cupomValor = $('cupomValor'), cupomValorMinimo = $('cupomValorMinimo'), cupomValidade = $('cupomValidade'), cupomCategoriasBox = $('cupomCategoriasBox'), btnAddCupom = $('btnAddCupom'), cupomListEl = $('cupomList');
 const statsEl = $('stats'), tabsEl = $('tabs'), cardListEl = $('cardList'), searchInput = $('searchInput');
 const addBar = $('addBar'), btnAdd = $('btnAdd'), addCategoria = $('addCategoria');
 const batchInput = $('batchInput'), batchValor = $('batchValor'), batchCategoria = $('batchCategoria'), btnBatch = $('btnBatch'), batchStatus = $('batchStatus');
@@ -681,7 +685,7 @@ function switchPage(page){
   if(page==='consulta') renderConsulta();
   if(page==='estoque') renderEstoque();
   if(page==='pedidos') renderPedidos();
-  if(page==='cupons') renderCupons();
+  if(page==='cupons'){renderCupons();renderCatalogoCategoriasBox();}
 }
 
 // ============================================================
@@ -1229,7 +1233,8 @@ window.removeCliente=async function(id){
 function subscribeCategorias(){
   unsubCats=db.collection('categorias').orderBy('nome').onSnapshot(snap=>{
     categorias=snap.docs.map(d=>({id:d.id,...d.data()}));
-    renderCategorias(); updateCatSelects(); renderCards();
+    renderCategorias(); updateCatSelects(); renderCatalogoCategoriasBox(); renderCards();
+    if(currentPage==='cupons') renderCupons();
   },err=>{console.error(err)});
 }
 
@@ -1237,6 +1242,13 @@ function updateCatSelects(){
   const opts='<option value="">-- Categoria --</option>'+categorias.map(c=>'<option value="'+esc(c.nome)+'">'+esc(c.nome)+'</option>').join('');
   addCategoria.innerHTML=opts;
   batchCategoria.innerHTML=opts;
+}
+
+function renderCatalogoCategoriasBox(){
+  if(!categorias.length){cupomCategoriasBox.innerHTML='<span style="font-size:0.8rem;color:var(--text-muted)">Cadastre uma categoria primeiro</span>';return}
+  cupomCategoriasBox.innerHTML=categorias.map(c=>
+    '<label style="display:flex;align-items:center;gap:0.35rem;font-size:0.82rem;cursor:pointer"><input type="checkbox" value="'+esc(c.nome)+'" class="cupom-cat-check"> '+esc(c.nome)+'</label>'
+  ).join('');
 }
 
 btnAddCat.addEventListener('click',async()=>{
@@ -1314,12 +1326,15 @@ btnAddCupom.addEventListener('click',async()=>{
   const valor=cupomValor.value?parseFloat(cupomValor.value):null;
   const valorMinimo=cupomValorMinimo.value?parseFloat(cupomValorMinimo.value):null;
   const validoAte=cupomValidade.value||null;
+  const categoriasSelecionadas=[...cupomCategoriasBox.querySelectorAll('.cupom-cat-check:checked')].map(el=>el.value);
   if(!codigo){cupomCodigo.focus();return}
   if(!valor||valor<=0){cupomValor.focus();toast('Informe um valor de desconto valido',true);return}
   if(cupomCodigoDuplicado(codigo)){toast('Ja existe um cupom com esse codigo',true);cupomCodigo.focus();return}
   try{
-    await db.collection('cupons').add({codigo,tipo,valor,valorMinimo,validoAte,ativo:true,criadoEm:firebase.firestore.FieldValue.serverTimestamp()});
-    cupomCodigo.value='';cupomValor.value='';cupomValorMinimo.value='';cupomValidade.value='';toast('Cupom cadastrado!');
+    await db.collection('cupons').add({codigo,tipo,valor,valorMinimo,validoAte,categorias:categoriasSelecionadas.length?categoriasSelecionadas:null,ativo:true,criadoEm:firebase.firestore.FieldValue.serverTimestamp()});
+    cupomCodigo.value='';cupomValor.value='';cupomValorMinimo.value='';cupomValidade.value='';
+    cupomCategoriasBox.querySelectorAll('.cupom-cat-check').forEach(el=>el.checked=false);
+    toast('Cupom cadastrado!');
   }catch(e){toast('Erro ao cadastrar cupom',true)}
 });
 
@@ -1329,11 +1344,24 @@ function renderCupons(){
     const valorStr=c.tipo==='percentual'?c.valor+'%':'R$ '+fmtV(c.valor);
     const minStr=c.valorMinimo!=null?' &middot; min. R$ '+fmtV(c.valorMinimo):'';
     const validadeStr=c.validoAte?' &middot; até '+new Date(c.validoAte+'T12:00:00').toLocaleDateString('pt-BR'):'';
+    const catStr=(c.categorias&&c.categorias.length)?'Válido para: '+c.categorias.map(esc).join(', '):'Válido para todas as categorias';
     const ativo=c.ativo!==false;
     const statusBadge='<span class="est-status '+(ativo?'ativo':'usado')+'">'+(ativo?'Ativo':'Inativo')+'</span>';
-    return '<div class="cliente-item"><div><div class="cli-name">'+esc(c.codigo)+' <span style="font-weight:400;color:var(--text-muted);font-size:0.8rem">'+valorStr+' off'+minStr+validadeStr+'</span></div><div class="cli-detail">'+statusBadge+'</div></div><button class="btn-sm" onclick="toggleCupomAtivo(\''+c.id+'\')">'+(ativo?'Desativar':'Ativar')+'</button><button class="btn-remove-user" onclick="removeCupom(\''+c.id+'\')">&#10005;</button></div>';
+    return '<div class="cliente-item"><div><div class="cli-name">'+esc(c.codigo)+' <span style="font-weight:400;color:var(--text-muted);font-size:0.8rem">'+valorStr+' off'+minStr+validadeStr+'</span></div><div class="cli-detail">'+statusBadge+' &middot; '+catStr+'</div></div><button class="btn-sm" onclick="editCupomCategorias(\''+c.id+'\')" title="Editar categorias validas">&#9998; Categorias</button><button class="btn-sm" onclick="toggleCupomAtivo(\''+c.id+'\')">'+(ativo?'Desativar':'Ativar')+'</button><button class="btn-remove-user" onclick="removeCupom(\''+c.id+'\')">&#10005;</button></div>';
   }).join('');
 }
+
+window.editCupomCategorias=async function(id){
+  const cupom=cupons.find(c=>c.id===id);if(!cupom)return;
+  const nomesDisponiveis=categorias.map(c=>c.nome).join(', ');
+  const atual=(cupom.categorias||[]).join(', ');
+  const val=prompt('Categorias validas para '+cupom.codigo+' (separadas por vírgula, deixe vazio para todas).\nDisponíveis: '+nomesDisponiveis,atual);
+  if(val===null)return;
+  const lista=val.split(',').map(s=>s.trim()).filter(Boolean);
+  const invalidas=lista.filter(nome=>!categorias.some(c=>c.nome===nome));
+  if(invalidas.length){toast('Categoria(s) nao encontrada(s): '+invalidas.join(', '),true);return}
+  try{await db.collection('cupons').doc(id).update({categorias:lista.length?lista:null});toast('Categorias do cupom atualizadas')}catch(e){toast('Erro ao atualizar',true)}
+};
 
 window.toggleCupomAtivo=async function(id){
   const cupom=cupons.find(c=>c.id===id);if(!cupom)return;

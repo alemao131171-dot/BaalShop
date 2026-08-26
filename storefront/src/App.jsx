@@ -259,24 +259,37 @@ function Prov({ children }) {
     : 0;
   const totalFinal = Math.max(0, total - desconto);
 
+  // Se o carrinho mudar depois do cupom aplicado (ex: adicionar um item de categoria nao
+  // permitida) e o cupom tiver restricao, remove ele automaticamente em vez de deixar
+  // aplicado sobre itens fora do escopo.
+  useEffect(() => {
+    if (!cupom || !cupom.categorias || !cupom.categorias.length) return;
+    const foraDoEscopo = cart.some(i => !cupom.categorias.includes(i.plan.categoriaRaw));
+    if (foraDoEscopo) {
+      setCupom(null);
+      flash(`⚠️ Cupom ${cupom.codigo} removido — só vale para ${cupom.categorias.join(", ")}`);
+    }
+  }, [cart, cupom, flash]);
+
   // Valida o cupom no Worker (nunca direto no Firestore — evita expor todos os codigos
   // via leitura publica). O total é reconferido de novo no servidor ao criar o pagamento.
   const aplicarCupom = useCallback(async (codigo) => {
     setCupomBusy(true);
     try {
+      const categoriasCarrinho = [...new Set(cart.map(i => i.plan.categoriaRaw))];
       const res = await fetch("/api/validar-cupom", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ codigo, total }),
+        body: JSON.stringify({ codigo, total, categorias: categoriasCarrinho }),
       });
       const data = await res.json().catch(() => ({}));
       if (!data.valido) throw new Error(data.motivo || "Cupom inválido");
-      setCupom({ codigo: data.codigo, tipo: data.tipo, valor: data.valor });
+      setCupom({ codigo: data.codigo, tipo: data.tipo, valor: data.valor, categorias: data.categorias || null });
       flash(`✅ Cupom ${data.codigo} aplicado!`);
     } finally {
       setCupomBusy(false);
     }
-  }, [total, flash]);
+  }, [total, cart, flash]);
 
   const removerCupom = useCallback(() => setCupom(null), []);
 

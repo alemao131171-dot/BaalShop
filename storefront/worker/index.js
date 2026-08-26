@@ -63,6 +63,7 @@ async function handleValidarCupom(request, env) {
   }
   const codigo = (body.codigo || "").toString().trim().toUpperCase();
   const total = Number(body.total) || 0;
+  const categoriasCarrinho = Array.isArray(body.categorias) ? body.categorias : [];
   if (!codigo) return json({ valido: false, motivo: "Digite um código de cupom" }, 400);
 
   const cupons = await firestoreQuery(env, "cupons", [["codigo", codigo]], 1);
@@ -77,8 +78,15 @@ async function handleValidarCupom(request, env) {
   if (c.valorMinimo != null && total < c.valorMinimo) {
     return json({ valido: false, motivo: `Pedido mínimo de R$ ${c.valorMinimo.toFixed(2)} para usar este cupom` });
   }
+  // categorias vazio/ausente no cupom = valido para qualquer categoria.
+  if (Array.isArray(c.categorias) && c.categorias.length) {
+    const foraDoEscopo = categoriasCarrinho.filter((cat) => !c.categorias.includes(cat));
+    if (foraDoEscopo.length) {
+      return json({ valido: false, motivo: `Este cupom só é válido para: ${c.categorias.join(", ")}` });
+    }
+  }
 
-  return json({ valido: true, codigo: c.codigo, tipo: c.tipo, valor: c.valor });
+  return json({ valido: true, codigo: c.codigo, tipo: c.tipo, valor: c.valor, categorias: c.categorias || null });
 }
 
 // Tenta atribuir um giftcard disponivel a cada pedido via transacao (mesma logica do
