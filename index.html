@@ -1347,20 +1347,25 @@ function renderCupons(){
     const catStr=(c.categorias&&c.categorias.length)?'Válido para: '+c.categorias.map(esc).join(', '):'Válido para todas as categorias';
     const ativo=c.ativo!==false;
     const statusBadge='<span class="est-status '+(ativo?'ativo':'usado')+'">'+(ativo?'Ativo':'Inativo')+'</span>';
-    return '<div class="cliente-item"><div><div class="cli-name">'+esc(c.codigo)+' <span style="font-weight:400;color:var(--text-muted);font-size:0.8rem">'+valorStr+' off'+minStr+validadeStr+'</span></div><div class="cli-detail">'+statusBadge+' &middot; '+catStr+'</div></div><button class="btn-sm" onclick="editCupomCategorias(\''+c.id+'\')" title="Editar categorias validas">&#9998; Categorias</button><button class="btn-sm" onclick="toggleCupomAtivo(\''+c.id+'\')">'+(ativo?'Desativar':'Ativar')+'</button><button class="btn-remove-user" onclick="removeCupom(\''+c.id+'\')">&#10005;</button></div>';
+    return '<div class="cliente-item"><div><div class="cli-name">'+esc(c.codigo)+' <span style="font-weight:400;color:var(--text-muted);font-size:0.8rem">'+valorStr+' off'+minStr+validadeStr+'</span></div><div class="cli-detail">'+statusBadge+' &middot; <span class="cupom-cat-area" id="cupomCatArea_'+c.id+'">'+catStr+'</span></div></div><button class="btn-sm" onclick="editCupomCategorias(\''+c.id+'\')" title="Editar categorias validas">&#9998; Categorias</button><button class="btn-sm" onclick="toggleCupomAtivo(\''+c.id+'\')">'+(ativo?'Desativar':'Ativar')+'</button><button class="btn-remove-user" onclick="removeCupom(\''+c.id+'\')">&#10005;</button></div>';
   }).join('');
 }
 
-window.editCupomCategorias=async function(id){
+window.editCupomCategorias=function(id){
   const cupom=cupons.find(c=>c.id===id);if(!cupom)return;
-  const nomesDisponiveis=categorias.map(c=>c.nome).join(', ');
-  const atual=(cupom.categorias||[]).join(', ');
-  const val=prompt('Categorias validas para '+cupom.codigo+' (separadas por vírgula, deixe vazio para todas).\nDisponíveis: '+nomesDisponiveis,atual);
-  if(val===null)return;
-  const lista=val.split(',').map(s=>s.trim()).filter(Boolean);
-  const invalidas=lista.filter(nome=>!categorias.some(c=>c.nome===nome));
-  if(invalidas.length){toast('Categoria(s) nao encontrada(s): '+invalidas.join(', '),true);return}
-  try{await db.collection('cupons').doc(id).update({categorias:lista.length?lista:null});toast('Categorias do cupom atualizadas')}catch(e){toast('Erro ao atualizar',true)}
+  const area=document.getElementById('cupomCatArea_'+id);if(!area)return;
+  const atuais=cupom.categorias||[];
+  const checks=categorias.map(c=>
+    '<label style="display:inline-flex;align-items:center;gap:0.3rem;margin-right:0.6rem;cursor:pointer"><input type="checkbox" value="'+esc(c.nome)+'" class="cupom-cat-edit-check"'+(atuais.includes(c.nome)?' checked':'')+'> '+esc(c.nome)+'</label>'
+  ).join('');
+  area.innerHTML='<div style="margin-top:0.35rem">'+(categorias.length?checks:'<span style="color:var(--text-muted)">Nenhuma categoria cadastrada</span>')+
+    '<div style="margin-top:0.4rem;display:flex;gap:0.4rem"><button class="btn-sm" onclick="salvarCupomCategorias(\''+id+'\')">Salvar</button><button class="btn-sm" onclick="renderCupons()">Cancelar</button></div></div>';
+};
+
+window.salvarCupomCategorias=async function(id){
+  const area=document.getElementById('cupomCatArea_'+id);if(!area)return;
+  const lista=[...area.querySelectorAll('.cupom-cat-edit-check:checked')].map(el=>el.value);
+  try{await db.collection('cupons').doc(id).update({categorias:lista.length?lista:null});toast('Categorias do cupom atualizadas')}catch(e){toast('Erro ao atualizar',true);renderCupons()}
 };
 
 window.toggleCupomAtivo=async function(id){
