@@ -577,11 +577,12 @@ function Download() {
 
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
           <div style={S.dlCode}>
-            <div style={S.dlCodeLbl}>Código Downloader (tente um destes)</div>
+            <div style={S.dlCodeLbl}>Código Downloader (tente um destes) — versão 4.20.1 do app</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               <div style={S.dlCodeVal}>120561</div>
               <div style={S.dlCodeVal}>7288564</div>
               <div style={S.dlCodeVal}>9589495</div>
+              <div style={S.dlCodeVal}>4237022</div>
             </div>
           </div>
           <div style={S.dlCode}><div style={S.dlCodeLbl}>Código NTDOWN</div><div style={S.dlCodeVal}>----</div></div>
