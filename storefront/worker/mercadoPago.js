@@ -18,6 +18,7 @@ export async function criarPreferencia(env, { items, payerEmail, externalReferen
       back_urls: backUrls,
       auto_return: "approved",
       statement_descriptor: "BAALSHOP RECARGAS",
+      payment_methods: { installments: 5 }, // maximo de parcelas no cartao
     }),
   });
   if (!res.ok) throw new Error("Erro ao criar preferencia no Mercado Pago: " + (await res.text()));
